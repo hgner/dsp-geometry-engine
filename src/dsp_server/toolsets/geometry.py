@@ -57,19 +57,7 @@ def _error(exc: Exception, hint: str | None = None, stderr_tail: list[str] | Non
 
 
 def _bone_map_of(dump_path: Path) -> dict[int, str]:
-    meta = ply.load_meta(dump_path)
-    if meta is not None and meta.bone_map:
-        return dict(meta.bone_map)
-    # Dumps produced outside the bridge have no .meta.json, but a --palette-out
-    # sidecar carries authoritative bone names — fall back to it.
-    palette_path = dump_path.with_suffix(".palette.json")
-    if palette_path.is_file():
-        try:
-            sidecar = lbs.load_palette_sidecar(palette_path)
-            return dict(enumerate(sidecar.bone_names))
-        except (ValueError, KeyError, OSError):
-            return {}
-    return {}
+    return ply.bone_map_for(dump_path)
 
 
 def _joint_histogram(dump: ply.EngineDump, bone_map: dict[int, str]) -> dict[str, int]:

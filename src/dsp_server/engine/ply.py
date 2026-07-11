@@ -357,3 +357,22 @@ def bone_index_for(bone_map: dict[int, str], name: str) -> int:
             return idx
     available = ", ".join(f"{i}={n}" for i, n in sorted(bone_map.items()))
     raise KeyError(f"bone '{name}' not in bone map ({available or 'empty'})")
+
+
+def bone_map_for(dump_path: Path | str) -> dict[int, str]:
+    """Best-available bone map for a dump: its ``.meta.json`` (bridge-produced
+    dumps), else the ``--palette-out`` sidecar's authoritative bone names."""
+    dump_path = Path(dump_path)
+    meta = load_meta(dump_path)
+    if meta is not None and meta.bone_map:
+        return dict(meta.bone_map)
+    palette_path = dump_path.with_suffix(".palette.json")
+    if palette_path.is_file():
+        try:
+            from dsp_server.engine import lbs  # lazy: keep ply's import graph flat
+
+            sidecar = lbs.load_palette_sidecar(palette_path)
+            return dict(enumerate(sidecar.bone_names))
+        except (ValueError, KeyError, OSError):
+            return {}
+    return {}

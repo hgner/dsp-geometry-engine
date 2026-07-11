@@ -14,6 +14,9 @@ dependencies = [
     "scipy>=1.13",
     "matplotlib>=3.9",
     "pillow>=10.3",
+    "sympy>=1.14.0",
+    "scikit-learn>=1.9.0",
+    "joblib>=1.4",
 ]
 
 [project.scripts]
@@ -43,3 +46,7 @@ select = ["E", "F", "W", "I", "UP", "B", "T20"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+filterwarnings = [
+    # joblib pickles sklearn models with an array-shape assignment NumPy 2.5 deprecated.
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+]

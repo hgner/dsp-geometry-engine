@@ -43,7 +43,11 @@ def create_server() -> FastMCP:
         if register is None:
             logger.warning("unknown toolset %r skipped (available: %s)", name, ", ".join(TOOLSETS))
             continue
-        register(mcp, ctx)
+        try:
+            register(mcp, ctx)
+        except Exception:  # a broken/missing pack must never take the whole server down
+            logger.exception("toolset %r failed to register — skipped", name)
+            continue
         logger.info("registered toolset %r", name)
     return mcp
 

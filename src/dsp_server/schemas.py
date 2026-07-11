@@ -24,6 +24,18 @@ def round6(value: float) -> float:
     return float(f"{f:.6g}")
 
 
+def _round_nested(value: Any) -> Any:
+    """Recursive 6-sig-fig rounding: floats, lists-of-lists, dicts-of-dicts —
+    course packs return nested structures (eigenvector rows, loading tables)."""
+    if isinstance(value, float):
+        return round6(value)
+    if isinstance(value, list):
+        return [_round_nested(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _round_nested(v) for k, v in value.items()}
+    return value
+
+
 class _SchemaBase(BaseModel):
     """Shared base: ``extra="forbid"`` + 6-significant-figure float rounding."""
 
@@ -32,11 +44,12 @@ class _SchemaBase(BaseModel):
     @field_validator("*", mode="after")
     @classmethod
     def _round_floats(cls, value: Any) -> Any:
-        if isinstance(value, float):
-            return round6(value)
-        if isinstance(value, list):
-            return [round6(v) if isinstance(v, float) else v for v in value]
-        return value
+        return _round_nested(value)
+
+
+# Public alias: course-pack toolset modules define their response models locally
+# (keeps schemas.py from becoming a monolith) but share the base's contract.
+SchemaBase = _SchemaBase
 
 
 class ToolError(_SchemaBase):
