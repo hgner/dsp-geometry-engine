@@ -49,4 +49,7 @@ addopts = "-q"
 filterwarnings = [
     # joblib pickles sklearn models with an array-shape assignment NumPy 2.5 deprecated.
     "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+    # An FIR built through TransferFunction trips scipy's leading-coeff check; group_delay
+    # uses the raw coefficients, so this is benign here.
+    "ignore:Badly conditioned filter coefficients:UserWarning",
 ]

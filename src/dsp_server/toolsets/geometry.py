@@ -21,7 +21,7 @@ from mcp.server.fastmcp import FastMCP
 
 from cxx_bridge import engine_cli
 from dsp_server import plots
-from dsp_server.engine import filters, lbs, ply, scoring, transforms
+from dsp_server.engine import filters, lbs, ply, scoring, topology, transforms
 from dsp_server.engine.transforms import Signal1D
 from dsp_server.schemas import (
     BakeRefMatch,
@@ -31,6 +31,7 @@ from dsp_server.schemas import (
     LbsDifferentialReport,
     LocalizeReport,
     RoughnessSchema,
+    SchemaBase,
     SegmentRoughness,
     SignalComparison,
     SpectralPeakSchema,
@@ -537,8 +538,7 @@ def _score_bake(
             mesh_ok=result.mesh_ok,
             verdict=result.verdict,
             top_matches=[
-                BakeRefMatch(ref=m.ref, iou=m.iou, hu=m.hu, edge_corr=m.edge_corr)
-                for m in result.top_matches
+                BakeRefMatch(ref=m.ref, iou=m.iou, hu=m.hu, edge_corr=m.edge_corr) for m in result.top_matches
             ],
         ).model_dump_json()
     except Exception as exc:
@@ -547,6 +547,92 @@ def _score_bake(
             hint="expects an engine bake dir with depth/frame_<n>.png + mask/frame_<n>_<person>.png; "
             "the other solo-mask person is blank — pass person=p0 if p1 is empty",
         )
+
+
+# --------------------------------------------------------------------------- #
+# Tool 7: analyze_mesh_topology (local response model — mirrors engine.topology)
+
+
+class MeshTopologyReport(SchemaBase):
+    """analyze_mesh_topology: whole-mesh topology QA on a dump's face connectivity.
+
+    Mirrors :class:`dsp_server.engine.topology.MeshTopology` and, when a vertex
+    pair is supplied, carries the surface geodesic distance/hops between them."""
+
+    dump_path: str
+    n_vertices_total: int
+    n_vertices_referenced: int
+    n_isolated_vertices: int
+    n_faces: int
+    n_edges: int
+    n_components: int
+    largest_component_fraction: float
+    component_sizes: list[int]
+    boundary_edge_count: int
+    nonmanifold_edge_count: int
+    is_manifold: bool
+    is_watertight: bool
+    valence_min: int
+    valence_max: int
+    valence_mean: float
+    valence_histogram: dict[int, int]
+    n_irregular_valence: int
+    euler_characteristic: int
+    estimated_genus: int | None = None
+    geodesic_m: float | None = None
+    geodesic_hops: int | None = None
+
+
+def _analyze_mesh_topology(
+    ctx: AppContext,
+    dump: str,
+    src_vertex: int | None = None,
+    dst_vertex: int | None = None,
+) -> str:
+    try:
+        dump_path = Path(dump)
+        loaded = ply.load_dump_cached(dump_path, ctx.cache_dir)
+        topo = topology.analyze_topology(loaded.faces, loaded.vertex_count)
+
+        geodesic_m: float | None = None
+        geodesic_hops: int | None = None
+        if src_vertex is not None and dst_vertex is not None:
+            n = loaded.vertex_count
+            if not (0 <= src_vertex < n and 0 <= dst_vertex < n):
+                return ToolError(
+                    error=f"src_vertex/dst_vertex out of range [0, {n})",
+                    hint=f"this dump has {n} vertices — pass 0-based indices below {n}",
+                ).model_dump_json()
+            geodesic_m, geodesic_hops = topology.geodesic_between(
+                loaded.faces, loaded.posed, src_vertex, dst_vertex
+            )
+
+        return MeshTopologyReport(
+            dump_path=str(dump_path),
+            n_vertices_total=loaded.vertex_count,
+            n_vertices_referenced=topo.n_vertices_referenced,
+            n_isolated_vertices=topo.n_isolated_vertices,
+            n_faces=topo.n_faces,
+            n_edges=topo.n_edges,
+            n_components=topo.n_components,
+            largest_component_fraction=topo.largest_component_fraction,
+            component_sizes=topo.component_sizes,
+            boundary_edge_count=topo.boundary_edge_count,
+            nonmanifold_edge_count=topo.nonmanifold_edge_count,
+            is_manifold=topo.is_manifold,
+            is_watertight=topo.is_watertight,
+            valence_min=topo.valence_min,
+            valence_max=topo.valence_max,
+            valence_mean=topo.valence_mean,
+            valence_histogram=topo.valence_histogram,
+            n_irregular_valence=topo.n_irregular_valence,
+            euler_characteristic=topo.euler_characteristic,
+            estimated_genus=topo.estimated_genus,
+            geodesic_m=geodesic_m,
+            geodesic_hops=geodesic_hops,
+        ).model_dump_json()
+    except Exception as exc:
+        return _error(exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -679,3 +765,23 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         hu_best<=hu_target, else 'pose-weak'), with a trailing '*' when advisory mesh corrugation
         is high. Returns BakeScoreReport JSON, or ToolError JSON on failure."""
         return _score_bake(ctx, bake_dir, reference_glob, frame, person, iou_target, hu_target)
+
+    @mcp.tool()
+    def analyze_mesh_topology(
+        dump: str,
+        src_vertex: int | None = None,
+        dst_vertex: int | None = None,
+    ) -> str:
+        """Whole-mesh topology QA on one engine PLY dump's face connectivity — the topology
+        counterpart to analyze_corrugation (which measures the periodic radial ripple on a single
+        JOINT's segment; this instead audits the entire triangle mesh and takes no joint). Loads
+        the dump and inspects its (m,3) face index array for the damage a bad source-mesh bake
+        leaves behind — non-manifold edges (shared by >2 triangles), boundary edges (an open shell,
+        each in exactly 1 triangle), disconnected islands (connected components over the referenced
+        vertices), irregular vertex valence (degree != 6), the Euler characteristic V-E+F and, when
+        watertight, an estimated genus, plus face-less isolated vertices. Returns MeshTopologyReport
+        JSON with is_manifold/is_watertight verdicts, connected-component sizes (desc, capped),
+        min/max/mean valence and a valence histogram; when both src_vertex and dst_vertex are given
+        it adds the edge-length-weighted surface geodesic distance in meters (Dijkstra over the posed
+        positions) and its hop count. On failure returns ToolError JSON."""
+        return _analyze_mesh_topology(ctx, dump, src_vertex, dst_vertex)

@@ -65,14 +65,15 @@
     Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
     relink together (stale-sibling policy).
 
-11. Tool packs (see the README table for the full 36-tool inventory): `geometry`
+11. Tool packs (see the README table for the full 41-tool inventory): `geometry`
     (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`,
-    `lbs_differential`), `imaging`, `stats`, `engmath`, `systems`, `ml`, `netqueue`, `os`.
-    Every tool returns a compact pydantic-JSON summary — arrays never cross the MCP boundary, they
-    live on disk under `data/` (plots/, series/, images/, features/, models/). Packs are toggled per
-    client with the `DSP_TOOLSETS` env var (comma-separated pack names; unset = all packs). General
-    data goes in as .csv/.tsv/.json/.npz/.npy paths (column-addressed); `.ply` paths address engine
-    dumps as `column="<joint>[:posed|rest]"`.
+    `lbs_differential`, `score_bake`, `analyze_mesh_topology`), `imaging`, `stats`, `engmath`,
+    `systems`, `ml`, `netqueue`, `os`, `rendering`. When/where to reach for each in an engine session
+    is `docs/ENGINE-PLAYBOOK.md`. Every tool returns a compact pydantic-JSON summary — arrays never
+    cross the MCP boundary, they live on disk under `data/` (plots/, series/, images/, features/,
+    models/, brdf/). Packs are toggled per client with the `DSP_TOOLSETS` env var (comma-separated pack
+    names; unset = all packs). General data goes in as .csv/.tsv/.json/.npz/.npy paths (column-addressed);
+    `.ply` paths address engine dumps as `column="<joint>[:posed|rest]"`.
 
 12. stats pack (ELE320): `describe`, `fit_distribution` (MLE + AIC + KS/chi2), `hypothesis_test`
     (auto/t/welch/mannwhitney/ks2/f_var/levene), `regression_fit` (OLS + CIs + residual diagnostics),
@@ -90,8 +91,10 @@
     sympy namespace (whitelisted functions, literal-size gates) — hostile or huge expressions get a
     fast ToolError, never an eval. Symbolic results return latex + plain text.
 
-15. systems pack (ELE301): `lti_response`, `pole_zero`, `bode` (+margins), `sampling_check`
-    (aliasing verdict; needs the reference sampled well above the proposed rate), `convolve_signals`.
+15. systems pack (ELE301 + control): `lti_response`, `pole_zero`, `bode` (+margins), `sampling_check`
+    (aliasing verdict; needs the reference sampled well above the proposed rate), `convolve_signals`,
+    `group_delay` (LTI tau_g=-dphi/dw OR cross-spectrum lag between two vertex-correspondent signals),
+    `state_space_analysis` (controllability/observability rank — "can inputs reach every state").
     Formats without an intrinsic dt (csv/json) require an explicit dt= argument.
 
 16. ml pack (ELE489, scikit-learn): `feature_engineer_dump` (per-vertex features -> data/features/),
@@ -106,3 +109,11 @@
 18. os pack (Tanenbaum): `schedule_sim` (fcfs/sjf/srtf/rr/priority + Gantt), `page_replacement_sim`
     (fifo/lru/opt/clock; OPT is the offline lower bound), `bankers_check` (safe sequence via
     pass-continuation scan). Deterministic textbook simulators — same input, same output.
+
+19. rendering pack (PBR / ray-tracer energy): `verify_brdf_energy` — white-furnace hemisphere
+    integral of a BRDF (lambertian or GGX Cook-Torrance). rho(wo) > 1 = energy LEAK (fireflies /
+    exposure blowout); rho << 1 at high roughness = single-scatter LOSS (darkening). A DESIGN
+    calculator — point it at the engine's ACTUAL shader model (roughness/f0/NDF) to match shipped HLSL;
+    the engine's own C++ furnace tests remain ground truth. Also in geometry: `analyze_mesh_topology`
+    (connected components / watertightness / non-manifold edges / valence / Euler / geodesic — whole-mesh
+    QA, complementing the per-joint `analyze_corrugation`).

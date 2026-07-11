@@ -92,7 +92,14 @@ def _register_os(mcp: FastMCP, ctx: AppContext) -> None:
     os_sim.register(mcp, ctx)
 
 
-# Course packs in curriculum order (llms.txt rules 12-18 mirror this order).
+def _register_rendering(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import rendering
+
+    rendering.register(mcp, ctx)
+
+
+# Course packs in curriculum order (llms.txt rules 12-18 mirror this order);
+# 'rendering' is the PBR/ray-tracer energy lane (rule 19).
 TOOLSETS: dict[str, Callable[[FastMCP, AppContext], None]] = {
     "geometry": _register_geometry,
     "imaging": _register_imaging,
@@ -102,4 +109,5 @@ TOOLSETS: dict[str, Callable[[FastMCP, AppContext], None]] = {
     "ml": _register_ml,
     "netqueue": _register_netqueue,
     "os": _register_os,
+    "rendering": _register_rendering,
 }

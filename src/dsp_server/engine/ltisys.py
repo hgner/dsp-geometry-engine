@@ -540,3 +540,72 @@ def ncc_at_lag(a: np.ndarray, b: np.ndarray, lag: int) -> float:
     if denom <= _TINY:
         return 0.0
     return float(np.dot(seg_a, seg_b) / denom)
+
+
+# --------------------------------------------------------------------------- #
+# Group delay  (tau_g(w) = -d(phase)/dw)
+
+
+def group_delay_lti(
+    sys: sps.lti | sps.dlti,
+    w: np.ndarray,
+    domain: str,
+    dt: float | None = None,
+    ba: tuple[Sequence[float], Sequence[float]] | None = None,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """Group delay tau_g(w) = -d(phase)/dw of an LTI system on the angular-frequency
+    grid ``w`` (rad/s). Returns ``(w, tau, unit)``.
+
+    Digital (domain='z'): scipy.signal.group_delay of the (b, a) coefficients, in
+    SAMPLES. The rad/s grid is converted to Hz (``w / 2*pi``) before the call so that
+    ``fs = 1/dt`` is dimensionally consistent (group_delay reads ``w`` in the units of
+    ``fs``). Analog (domain='s'): H(jw) = polyval(b, jw)/polyval(a, jw), then
+    tau = -gradient(unwrap(angle(H)), w) in SECONDS.
+
+    ``ba`` supplies the raw (numerator, denominator) coefficients directly. Prefer it:
+    ``sys.to_tf()`` runs scipy's ``normalize``, which trims a small leading numerator
+    coefficient of a symmetric FIR and corrupts its group delay (10 -> 9 samples).
+    """
+    w = np.asarray(w, dtype=np.float64)
+    if ba is not None:
+        b = np.atleast_1d(np.asarray(ba[0], dtype=np.float64))
+        a = np.atleast_1d(np.asarray(ba[1], dtype=np.float64))
+    else:
+        tf = sys.to_tf()
+        b = np.atleast_1d(np.asarray(tf.num, dtype=np.float64))
+        a = np.atleast_1d(np.asarray(tf.den, dtype=np.float64))
+    if domain == "z":
+        if dt is None or float(dt) <= 0.0:
+            raise ValueError("digital group delay needs dt > 0 (the sample period)")
+        dt = float(dt)
+        _wout, gd = sps.group_delay((b, a), w=w / (2.0 * np.pi), fs=1.0 / dt)
+        return w, np.asarray(gd, dtype=np.float64), "samples"
+    s = 1j * w
+    h = np.polyval(b, s) / np.polyval(a, s)
+    phase = np.unwrap(np.angle(h))
+    tau = -np.gradient(phase, w)
+    return w, np.asarray(tau, dtype=np.float64), "seconds"
+
+
+def group_delay_xspec(a: np.ndarray, b: np.ndarray, dt: float) -> tuple[np.ndarray, np.ndarray]:
+    """Cross-spectral group delay between two equal-length, uniformly-sampled series.
+
+    Sab = rfft(a) * conj(rfft(b)); tau = -d(unwrap(angle(Sab)))/dw over the analysis
+    grid w = 2*pi*rfftfreq(n, dt). Positive tau means series ``a`` LAGS series ``b`` by
+    that many seconds at that frequency. Returns ``(w [rad/s], tau [s])``.
+    """
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    if a.size != b.size:
+        raise ValueError(f"series must be equal length for a cross-spectrum, got {a.size} and {b.size}")
+    if a.size < 4:
+        raise ValueError(f"need >= 4 samples for a cross-spectral group delay, got {a.size}")
+    if dt <= 0.0:
+        raise ValueError(f"dt must be positive, got {dt}")
+    fa = np.fft.rfft(a)
+    fb = np.fft.rfft(b)
+    sab = fa * np.conj(fb)
+    phase = np.unwrap(np.angle(sab))
+    w = 2.0 * np.pi * np.fft.rfftfreq(a.size, d=dt)
+    tau = -np.gradient(phase, w)
+    return w, np.asarray(tau, dtype=np.float64)

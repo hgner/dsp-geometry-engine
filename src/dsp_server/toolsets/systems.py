@@ -1,11 +1,13 @@
 """Systems tool pack (ELE301): LTI responses, pole-zero maps, Bode margins, the
-sampling/aliasing verdict, and convolution/correlation of series.
+sampling/aliasing verdict, convolution/correlation of series, group delay, and the
+state-space controllability/observability verdict.
 
-Five tools: lti_response, pole_zero, bode, sampling_check, convolve_signals.
-Same contract as the geometry pack: every tool returns a pydantic model's
-``model_dump_json()``; every failure returns ToolError JSON (TabularError
-messages land in the hint verbatim); arrays live on disk under data/series/,
-never inline. Module-level ``_impl`` functions are called directly by tests.
+Seven tools: lti_response, pole_zero, bode, sampling_check, convolve_signals,
+group_delay, state_space_analysis. Same contract as the geometry pack: every tool
+returns a pydantic model's ``model_dump_json()``; every failure returns ToolError
+JSON (TabularError messages land in the hint verbatim); arrays live on disk under
+data/series/, never inline. Module-level ``_impl`` functions are called directly by
+tests.
 
 CT vs DT is the ``domain`` parameter ('s' | 'z'; 'z' requires dt). DT num/den
 are polynomials in z^-1 (den=[1,-0.5] means 1-0.5z^-1). ``bode`` margins treat
@@ -26,7 +28,7 @@ from mcp.server.fastmcp import FastMCP
 # Importing dsp_server.plots locks the matplotlib Agg backend BEFORE this module's
 # plot helpers lazily import pyplot (stdout is MCP JSON-RPC; no GUI may ever start).
 from dsp_server import plots  # noqa: F401
-from dsp_server.engine import filters, ltisys, ply, tabular, transforms
+from dsp_server.engine import filters, ltisys, ply, statespace, tabular, transforms
 from dsp_server.engine.transforms import Signal1D
 from dsp_server.schemas import SchemaBase, ToolError
 from dsp_server.toolsets import AppContext
@@ -42,6 +44,15 @@ _NO_DT_HINT = (
 _OPERAND_HINT = (
     "pass each signal as path_X= (csv/tsv/json/npz/npy/ply file) or values_X= (inline list, "
     f"<= {_MAX_INLINE} samples); files carrying different dt are resampled onto a's grid"
+)
+_GROUP_DELAY_HINT = (
+    "group_delay runs in one of two modes: (a) LTI — pass num=+den= or zeros=/poles=/gain= with "
+    "domain='s'|'z' (z requires dt=); (b) cross-spectrum — pass series_a= and series_b= "
+    "(equal-length series files; add dt= when the format carries no sample spacing)"
+)
+_STATE_SPACE_HINT = (
+    "pass A (square n x n) and B (n x m) as inline rows a=[[...]] / b=[[...]] OR as files "
+    "a_path=/b_path= (csv/tsv/json/npz/npy); add C (p x n) via c=/c_path= to also test observability"
 )
 
 
@@ -164,6 +175,42 @@ class ConvolutionReport(SchemaBase):
     resampled_b: bool
     result_path: str
     plot_path: str | None = None
+
+
+class GroupDelayReport(SchemaBase):
+    """group_delay: tau_g(w) summary + saved (w, tau) arrays path."""
+
+    mode: str  # "lti" | "cross_spectrum"
+    domain: str  # "s" | "z" | "cross-spectrum"
+    dt: float | None = None
+    n_points: int
+    tau_unit: str  # "samples" (digital LTI) | "seconds"
+    tau_mean: float
+    tau_max: float
+    tau_min: float
+    tau_variance: float
+    freq_at_max_tau: float  # w [rad/s] at the tau maximum
+    tau_at_dc: float  # tau at the lowest analyzed frequency
+    tau_mean_s: float  # tau_mean expressed in seconds (= tau_mean*dt for the digital lane)
+    group_delay_path: str
+    plot_path: str | None = None
+
+
+class StateSpaceReport(SchemaBase):
+    """state_space_analysis: controllability (+ optional observability) verdict."""
+
+    n_states: int
+    n_inputs: int
+    ctrb_rank: int
+    controllable: bool
+    uncontrollable_dim: int
+    ctrb_min_singular: float
+    n_outputs: int | None = None
+    obsv_rank: int | None = None
+    observable: bool | None = None
+    unobservable_dim: int | None = None
+    obsv_min_singular: float | None = None
+    note: str
 
 
 # --------------------------------------------------------------------------- #
@@ -788,11 +835,189 @@ def _convolve_signals(
 
 
 # --------------------------------------------------------------------------- #
+# Tool 6: group_delay
+
+
+def _group_delay(
+    ctx: AppContext,
+    num: list[float] | None = None,
+    den: list[float] | None = None,
+    zeros: list[list[float]] | None = None,
+    poles: list[list[float]] | None = None,
+    gain: float | None = None,
+    domain: str = "s",
+    dt: float | None = None,
+    series_a: str | None = None,
+    series_b: str | None = None,
+    column_a: str | None = None,
+    column_b: str | None = None,
+    key_a: str | None = None,
+    key_b: str | None = None,
+    n_points: int = 512,
+    save_plot: bool = False,
+) -> str:
+    try:
+        cross_mode = series_a is not None or series_b is not None
+        if cross_mode:
+            if series_a is None or series_b is None:
+                raise ValueError("cross-spectrum mode needs BOTH series_a= and series_b=")
+            sa = tabular.load_series(series_a, column=column_a, key=key_a, cache_dir=ctx.cache_dir)
+            sb = tabular.load_series(series_b, column=column_b, key=key_b, cache_dir=ctx.cache_dir)
+            if sa.y.size != sb.y.size:
+                raise ValueError(
+                    f"series_a has {sa.y.size} samples but series_b has {sb.y.size} — "
+                    "cross-spectral group delay needs equal-length, vertex-correspondent signals"
+                )
+            dt_opt = sa.dt if sa.dt is not None else (sb.dt if sb.dt is not None else dt)
+            if dt_opt is None:
+                raise ValueError(_NO_DT_MSG)
+            grid_dt = float(dt_opt)
+            if grid_dt <= 0.0:
+                raise ValueError(f"dt must be positive, got {grid_dt}")
+            w, tau = ltisys.group_delay_xspec(sa.y, sb.y, grid_dt)
+            tau_seconds = tau
+            unit = "seconds"
+            mode = "cross_spectrum"
+            report_domain = "cross-spectrum"
+            report_dt: float | None = grid_dt
+            stamp = _stamp("gdxs", str(series_a), str(series_b), sa.y.size, grid_dt)
+            title = f"cross-spectral group delay ({Path(str(series_a)).name} vs {Path(str(series_b)).name})"
+        else:
+            n_points = int(n_points)
+            if not 16 <= n_points <= 20_000:
+                raise ValueError(f"n_points must be in [16, 20000], got {n_points}")
+            sys_ = ltisys.build_system(num, den, zeros, poles, gain, domain, dt)
+            z, p, k = ltisys.zpk_of(sys_)
+            sys_dt = float(sys_.dt) if domain == "z" else None
+            grid = ltisys.default_w_grid(z, p, domain, sys_dt, n_points)
+            # Feed the raw num/den so scipy's normalize() cannot trim a small leading
+            # numerator term (which would corrupt an FIR's group delay); zpk input
+            # (no small-leading-coefficient pathology) falls back to the system's tf.
+            ba = (num, den) if num is not None and den is not None else None
+            w, tau, unit = ltisys.group_delay_lti(sys_, grid, domain, sys_dt, ba=ba)
+            tau_seconds = tau * sys_dt if unit == "samples" and sys_dt is not None else tau
+            mode = "lti"
+            report_domain = domain
+            report_dt = sys_dt
+            stamp = _stamp("gdlti", num, den, zeros, poles, gain, domain, dt, n_points)
+            title = f"group delay (domain={domain})"
+
+        tau = np.asarray(tau, dtype=np.float64)
+        if tau.size == 0:
+            raise ValueError("group delay grid is empty")
+        i_max = int(np.argmax(tau))
+        out = _series_dir(ctx) / f"group_delay_{stamp}.npz"
+        np.savez(out, w=w, tau=tau, tau_seconds=np.asarray(tau_seconds, dtype=np.float64))
+        plot_path: str | None = None
+        if save_plot:
+            plot_path = str(
+                _save_xy_plot(
+                    [(w, tau, f"tau_g [{unit}]")],
+                    ctx.plots_dir / f"group_delay_{stamp}.png",
+                    title,
+                    "w [rad/s]",
+                    f"group delay [{unit}]",
+                )
+            )
+        return GroupDelayReport(
+            mode=mode,
+            domain=report_domain,
+            dt=report_dt,
+            n_points=int(tau.size),
+            tau_unit=unit,
+            tau_mean=float(np.mean(tau)),
+            tau_max=float(np.max(tau)),
+            tau_min=float(np.min(tau)),
+            tau_variance=float(np.var(tau)),
+            freq_at_max_tau=float(w[i_max]),
+            tau_at_dc=float(tau[0]),
+            tau_mean_s=float(np.mean(np.asarray(tau_seconds, dtype=np.float64))),
+            group_delay_path=str(out),
+            plot_path=plot_path,
+        ).model_dump_json()
+    except Exception as exc:  # the MCP boundary must never see a raise
+        return _fail(exc, default_hint=_GROUP_DELAY_HINT)
+
+
+# --------------------------------------------------------------------------- #
+# Tool 7: state_space_analysis
+
+
+def _load_ss_matrix(
+    ctx: AppContext, name: str, inline: list[list[float]] | None, path: str | None
+) -> np.ndarray:
+    if (inline is None) == (path is None):
+        raise ValueError(
+            f"pass exactly one of {name}= (inline rows) or {name}_path= (file) for matrix {name.upper()}"
+        )
+    if inline is not None:
+        arr = np.asarray(inline, dtype=np.float64)
+        if arr.ndim != 2:
+            raise ValueError(
+                f"inline {name.upper()} must be a list of equal-length rows, got shape {arr.shape}"
+            )
+        return arr
+    x, _names = tabular.load_matrix(path, cache_dir=ctx.cache_dir)
+    return x
+
+
+def _state_space_analysis(
+    ctx: AppContext,
+    a: list[list[float]] | None = None,
+    b: list[list[float]] | None = None,
+    c: list[list[float]] | None = None,
+    a_path: str | None = None,
+    b_path: str | None = None,
+    c_path: str | None = None,
+) -> str:
+    try:
+        mat_a = _load_ss_matrix(ctx, "a", a, a_path)
+        mat_b = _load_ss_matrix(ctx, "b", b, b_path)
+        mat_c: np.ndarray | None = None
+        if c is not None or c_path is not None:
+            mat_c = _load_ss_matrix(ctx, "c", c, c_path)
+        res = statespace.analyze(mat_a, mat_b, mat_c)
+
+        notes: list[str] = []
+        if res.controllable:
+            notes.append("controllable")
+        else:
+            notes.append(
+                f"NOT controllable: {res.uncontrollable_dim} uncontrollable state direction(s) "
+                f"(ctrb rank {res.ctrb_rank} < n_states {res.n_states})"
+            )
+        if res.observable is not None:
+            if res.observable:
+                notes.append("observable")
+            else:
+                notes.append(
+                    f"NOT observable: {res.unobservable_dim} unobservable state direction(s) "
+                    f"(obsv rank {res.obsv_rank} < n_states {res.n_states})"
+                )
+        return StateSpaceReport(
+            n_states=res.n_states,
+            n_inputs=res.n_inputs,
+            ctrb_rank=res.ctrb_rank,
+            controllable=res.controllable,
+            uncontrollable_dim=res.uncontrollable_dim,
+            ctrb_min_singular=res.ctrb_min_singular,
+            n_outputs=res.n_outputs,
+            obsv_rank=res.obsv_rank,
+            observable=res.observable,
+            unobservable_dim=res.unobservable_dim,
+            obsv_min_singular=res.obsv_min_singular,
+            note="; ".join(notes),
+        ).model_dump_json()
+    except Exception as exc:
+        return _fail(exc, default_hint=_STATE_SPACE_HINT)
+
+
+# --------------------------------------------------------------------------- #
 # Registration
 
 
 def register(mcp: FastMCP, ctx: AppContext) -> None:
-    """Register the five ELE301 systems tools on ``mcp``, bound to ``ctx``."""
+    """Register the seven ELE301 systems tools on ``mcp``, bound to ``ctx``."""
 
     @mcp.tool()
     def lti_response(
@@ -952,3 +1177,73 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
             normalize,
             save_plot,
         )
+
+    @mcp.tool()
+    def group_delay(
+        num: list[float] | None = None,
+        den: list[float] | None = None,
+        zeros: list[list[float]] | None = None,
+        poles: list[list[float]] | None = None,
+        gain: float | None = None,
+        domain: str = "s",
+        dt: float | None = None,
+        series_a: str | None = None,
+        series_b: str | None = None,
+        column_a: str | None = None,
+        column_b: str | None = None,
+        key_a: str | None = None,
+        key_b: str | None = None,
+        n_points: int = 512,
+        save_plot: bool = False,
+    ) -> str:
+        """Group delay tau_g(w) = -d(phase)/dw in one of two modes. LTI mode: pass a system as
+        num=+den= or zeros=/poles=/gain= (same two forms as lti_response/pole_zero/bode) with
+        domain='s'|'z' (z requires dt=), evaluated over the auto-ranged log grid from bode.
+        Digital reports tau in SAMPLES (scipy.signal.group_delay) plus tau_mean_s in seconds; analog
+        reports SECONDS via -gradient(unwrap(angle(H(jw))), w). Cross-spectrum mode: pass series_a=
+        and series_b= (equal-length, vertex-correspondent series files — e.g. an engine-posed forearm
+        profile vs its pure-numpy LBS reconstruction; add dt= when the format carries no sample
+        spacing) to measure the frequency-dependent LAG between them (positive tau = series_a lags
+        series_b) via Sab = rfft(a)*conj(rfft(b)). A linear-phase FIR gives a flat tau = (N-1)/2
+        samples. The (w, tau, tau_seconds) arrays are saved under data/series/ (path in the JSON).
+        Related: pole_zero for the phase's pole/zero origin, bode for the magnitude/phase curves.
+        Returns GroupDelayReport JSON."""
+        return _group_delay(
+            ctx,
+            num,
+            den,
+            zeros,
+            poles,
+            gain,
+            domain,
+            dt,
+            series_a,
+            series_b,
+            column_a,
+            column_b,
+            key_a,
+            key_b,
+            n_points,
+            save_plot,
+        )
+
+    @mcp.tool()
+    def state_space_analysis(
+        a: list[list[float]] | None = None,
+        b: list[list[float]] | None = None,
+        c: list[list[float]] | None = None,
+        a_path: str | None = None,
+        b_path: str | None = None,
+        c_path: str | None = None,
+    ) -> str:
+        """Definitively answer, for a linear state model x' = A x + B u (y = C x): can the inputs
+        drive the system to ANY state (CONTROLLABLE) and — when C is given — can the outputs
+        reconstruct the full state (OBSERVABLE)? Pass A (square n x n) and B (n x m) as inline rows
+        a=[[...]] / b=[[...]] OR as files a_path=/b_path= (csv/tsv/json/npz/npy); add C (p x n) via
+        c=/c_path= to also test observability. Uses the Kalman rank tests: controllability matrix
+        [B, AB, ..., A^(n-1)B] and observability matrix [C; CA; ...; CA^(n-1)], each ranked by SVD.
+        When a rank is deficient the note names the deficient dimension (uncontrollable_dim /
+        unobservable_dim), and ctrb_min_singular / obsv_min_singular give the numerical margin to
+        rank loss. Complements lti_response / pole_zero (the transfer-function view of the same
+        dynamics). Returns StateSpaceReport JSON; shape mismatches return ToolError JSON."""
+        return _state_space_analysis(ctx, a, b, c, a_path, b_path, c_path)

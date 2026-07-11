@@ -292,10 +292,18 @@ def test_convolve_dt_missing_toolerror(ctx: AppContext):
 # Registration surface
 
 
-def test_register_exposes_five_tools(ctx: AppContext):
+def test_register_exposes_all_tools(ctx: AppContext):
     from mcp.server.fastmcp import FastMCP
 
     mcp = FastMCP("systems-test")
     systems.register(mcp, ctx)
     names = {tool.name for tool in asyncio.run(mcp.list_tools())}
-    assert names == {"lti_response", "pole_zero", "bode", "sampling_check", "convolve_signals"}
+    assert names == {
+        "lti_response",
+        "pole_zero",
+        "bode",
+        "sampling_check",
+        "convolve_signals",
+        "group_delay",
+        "state_space_analysis",
+    }

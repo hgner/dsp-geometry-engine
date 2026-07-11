@@ -13,11 +13,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from synth2d import save_png8
 
 from dsp_server.engine import scoring
 from dsp_server.toolsets import AppContext
 from dsp_server.toolsets.geometry import _score_bake
+from synth2d import save_png8
 
 
 def _ellipse(size: int, cx: float, cy: float, rx: float, ry: float) -> np.ndarray:

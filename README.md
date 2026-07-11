@@ -18,28 +18,31 @@ MCP registration is automatic in Claude Code: the committed `.mcp.json` starts t
 
 ## Tool packs
 
-36 tools across 8 course packs (the engine's own DSP lane plus one pack per relevant EE course). Each
-pack registers by default; trim per client with the `DSP_TOOLSETS` env var (comma-separated names).
-General data goes in as `.csv/.tsv/.json/.npz/.npy` paths (column-addressed); `.ply` paths address
-engine dumps as `column="<joint>[:posed|rest]"`.
+41 tools across 9 packs (the engine's own DSP lane, one pack per relevant EE course, plus a rendering
+lane for the ray tracer). Each pack registers by default; trim per client with the `DSP_TOOLSETS` env
+var (comma-separated names). General data goes in as `.csv/.tsv/.json/.npz/.npy` paths (column-addressed);
+`.ply` paths address engine dumps as `column="<joint>[:posed|rest]"`.
 
-| Pack (`DSP_TOOLSETS` name) | Course | Tools |
+| Pack (`DSP_TOOLSETS` name) | Course / lane | Tools |
 | --- | --- | --- |
-| `geometry` | ELE407 DSP | `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`, `lbs_differential` |
+| `geometry` | ELE407 DSP + mesh QA | `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`, `lbs_differential`, `score_bake`, `analyze_mesh_topology` |
 | `imaging` | ELE490 Image Processing | `compare_depth_renders`, `enhance_image`, `filter_image`, `segment_image`, `restore_image` |
 | `stats` | ELE320 Probability & Statistics | `describe`, `fit_distribution`, `hypothesis_test`, `regression_fit`, `compare_dump_ripples` |
 | `engmath` | MAT235/236 Engineering Math | `solve_ode`, `laplace_transform`, `linear_algebra`, `residues_and_integrals`, `fourier_series` |
-| `systems` | ELE301 Signals & Systems | `lti_response`, `pole_zero`, `bode`, `sampling_check`, `convolve_signals` |
+| `systems` | ELE301 Signals & Systems + control | `lti_response`, `pole_zero`, `bode`, `sampling_check`, `convolve_signals`, `group_delay`, `state_space_analysis` |
 | `ml` | ELE489 Machine Learning | `feature_engineer_dump`, `cluster`, `reduce_dims`, `classify_eval`, `predict` |
 | `netqueue` | ELE412 Data Communication | `queueing_calc`, `little_law`, `erlang_blocking` |
 | `os` | Operating Systems (Tanenbaum) | `schedule_sim`, `page_replacement_sim`, `bankers_check` |
+| `rendering` | PBR / ray-tracer energy | `verify_brdf_energy` |
 
 All tools return small JSON summaries; arrays, plots, models, and images stay on disk under `data/`
-(`plots/`, `series/`, `images/`, `features/`, `models/`). Preset examples: `DSP_TOOLSETS=geometry,imaging,stats`
-for a corrugation-RCA session; `DSP_TOOLSETS=engmath,systems,stats` for coursework-style calculation.
+(`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`). Preset examples:
+`DSP_TOOLSETS=geometry,imaging,stats` for a corrugation-RCA session; `DSP_TOOLSETS=engmath,systems,stats`
+for coursework-style calculation; `DSP_TOOLSETS=geometry,rendering` for engine mesh + shader QA.
 
 ## Docs
 
+- `docs/ENGINE-PLAYBOOK.md` — **when/where to reach for each tool in an engine-debugging session** (advisory).
 - `docs/ARCHITECTURE.md` — data flow, two-repo layout, tool surface, PLY/stderr contract, isolation logic.
 - `docs/DEVELOPMENT.md` — setup, lint/test, engine build lane, MCP registration, adding a course pack.
 - `docs/DEPLOYMENT.md` — container image, AWS (App Runner / ECS Fargate), env var reference, security.
