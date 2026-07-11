@@ -1,0 +1,14 @@
+# environments / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+
+# analysis artifacts — reproducible from the engine, some are 100+ MB
+data/*
+!data/.gitkeep
+*.ply
+!tests/fixtures/engine_8verts.ply
+*.npz
