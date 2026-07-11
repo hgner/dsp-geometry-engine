@@ -42,8 +42,8 @@
    `armLowerL` / `armLowerR` in the 55-bone engine-canonical skeleton.
 
 7. Units: all spectra are reported in cycles/meter (`dominant_freq_cpm`), always accompanied by
-   `wavelength_m` (= 1/f) and `ridge_count_est`, the estimated ridge count over the analyzed segment
-   length. Never report cycles-per-bin or cycles-per-sample.
+   `dominant_wavelength_m` (= 1/f) and `ridge_count_est`, the estimated ridge count over the analyzed
+   segment length. Never report cycles-per-bin or cycles-per-sample.
 
 8. Prime corrugation suspects, in order: (a) engine deformers / collision capsules attached to the
    character at import — capsule welds under flexion; correlate the dominant wavelength against the

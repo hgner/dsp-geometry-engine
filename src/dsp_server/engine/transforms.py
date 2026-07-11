@@ -206,7 +206,10 @@ def sector_profiles(
     out: list[Signal1D] = []
     for s in range(n_sectors):
         sel = sector == s
-        if not sel.any():
+        # A sector is only usable if it has vertices INSIDE the shared axial
+        # window; a wedge populated solely by stray end-cap vertices would make
+        # _binned_profile raise and abort an otherwise-computable analysis.
+        if not (sel & (t >= lo) & (t <= hi)).any():
             continue
         out.append(_binned_profile(t[sel], np.asarray(r)[sel], float(lo), float(hi), n_samples, "median"))
     return out

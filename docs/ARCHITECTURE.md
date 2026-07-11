@@ -136,7 +136,7 @@ stderr protocol (the bone table exists only here):
 
 ```
 bone-map: 0=pelvis 1=spine ...
-<sex>-posed-ok clip=<clipId> sampleTime=<sec> verts=<n>
+layered_field_dump_cli-posed-ok clip=<clipId> sampleTime=<sec> verts=<n> out=<path>
 deformers applied (collisionPush=<float> bakedCollisionPush=<float>)
 import-ok verts=<v> bones=<b> clips=<c> packClips=<p>      # patched --character runs only
 ```

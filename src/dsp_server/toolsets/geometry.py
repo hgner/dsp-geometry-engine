@@ -234,12 +234,18 @@ def _compare_geometry_signals(
         path_a, path_b = Path(dump_a), Path(dump_b)
         loaded_a = ply.load_dump_cached(path_a, ctx.cache_dir)
         loaded_b = ply.load_dump_cached(path_b, ctx.cache_dir)
-        bone_map = {**_bone_map_of(path_a), **_bone_map_of(path_b)}
-        joint_ids = transforms.resolve_joint_ids(
-            joint, bone_map=bone_map or None, bone_map_path=bone_map_path
+        # Resolve the joint PER DUMP: two skeletons may index the same bone name
+        # differently, and a merged map would silently mask the wrong bone in one dump.
+        map_a, map_b = _bone_map_of(path_a), _bone_map_of(path_b)
+        bone_map = {**map_a, **map_b}  # for the error-hint histogram only
+        joint_ids_a = transforms.resolve_joint_ids(
+            joint, bone_map=(map_a or map_b) or None, bone_map_path=bone_map_path
         )
-        mask_a = transforms.select_segment(loaded_a, joint_ids, channel=channel_a)
-        mask_b = transforms.select_segment(loaded_b, joint_ids, channel=channel_b)
+        joint_ids_b = transforms.resolve_joint_ids(
+            joint, bone_map=(map_b or map_a) or None, bone_map_path=bone_map_path
+        )
+        mask_a = transforms.select_segment(loaded_a, joint_ids_a, channel=channel_a)
+        mask_b = transforms.select_segment(loaded_b, joint_ids_b, channel=channel_b)
         sig_a, sectors_a, frame_a = _signal_bundle(loaded_a, mask_a, channel_a)
         sig_b, sectors_b, _frame_b = _signal_bundle(loaded_b, mask_b, channel_b)
         rough_a = transforms.roughness(sig_a, sectors=sectors_a)
@@ -289,7 +295,7 @@ def _compare_geometry_signals(
             dump_b=str(path_b),
             channel_b=channel_b,
             joint=joint,
-            joint_ids=joint_ids,
+            joint_ids=sorted(set(joint_ids_a) | set(joint_ids_b)),
             roughness_a=RoughnessSchema.from_report(rough_a),
             roughness_b=RoughnessSchema.from_report(rough_b),
             delta_rel_ripple=rough_b.rel_ripple - rough_a.rel_ripple,
@@ -579,14 +585,16 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         channel: str = "posed",
         min_verts: int = 100,
         top_k: int = 8,
+        min_span_m: float = 0.06,
     ) -> str:
         """Answer 'is the ripple forearm-only or systemic?' in one call: every joint with at
-        least min_verts dominant vertices gets its own axis fit, axial profile, and roughness
-        report, and the segments are ranked by rel_ripple * peak_prominence_db (negative
-        prominence clamped to 0). Returns LocalizeReport JSON with the top_k segments (joint id,
-        name when the bone map is known, vertex count, score, full RoughnessSchema), most
-        corrugated first."""
-        return _localize_defect(ctx, dump, channel, min_verts, top_k)
+        least min_verts dominant vertices and at least min_span_m of axial extent gets its own
+        axis fit, axial profile, and roughness report, and the segments are ranked by spectral
+        peak prominence alone (a DEFECT is a narrowband peak; anatomical shape is broadband
+        ripple that would out-rank it under any rel_ripple weighting). Returns LocalizeReport
+        JSON with the top_k segments (joint id, name when the bone map is known, vertex count,
+        score, full RoughnessSchema), most corrugated first."""
+        return _localize_defect(ctx, dump, channel, min_verts, top_k, min_span_m)
 
     @mcp.tool()
     def lbs_differential(

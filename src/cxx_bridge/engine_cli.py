@@ -79,7 +79,8 @@ def resolve_engine_cli() -> list[str]:
 
 
 @functools.lru_cache(maxsize=8)
-def _engine_help_cached(argv0: tuple[str, ...]) -> str:
+def _engine_help_cached(argv0: tuple[str, ...], binary_mtime_ns: int) -> str:
+    del binary_mtime_ns  # part of the cache key only: a rebuild at the same path re-probes
     proc = subprocess.run(
         [*argv0, "--help"],
         shell=False,
@@ -91,9 +92,19 @@ def _engine_help_cached(argv0: tuple[str, ...]) -> str:
     return (proc.stdout or "") + (proc.stderr or "")
 
 
+def _binary_mtime_ns(argv0: Sequence[str]) -> int:
+    """mtime of the actual engine binary/script so a rebuild invalidates the
+    memoized --help text (a long-lived MCP server must notice rebuilt exes)."""
+    target = argv0[-1]  # exe path, or the .py after sys.executable
+    try:
+        return Path(target).stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
 def engine_help(argv0: Sequence[str]) -> str:
-    """The CLI's ``--help`` text (stdout+stderr), memoized per argv."""
-    return _engine_help_cached(tuple(argv0))
+    """The CLI's ``--help`` text (stdout+stderr), memoized per (argv, exe mtime)."""
+    return _engine_help_cached(tuple(argv0), _binary_mtime_ns(argv0))
 
 
 def supports_flag(flag: str) -> bool:
@@ -415,6 +426,23 @@ def _run_field_dump(
             },
         )
 
+    # The engine hard-rejects --character/--time/--palette-out/--weights without
+    # --pose (exit 2): rest dumps are the procedural field iso-surface, a different
+    # pipeline where none of those levers apply.
+    if pose_clip is None and (character_json is not None or time_s is not None):
+        return EngineRunResult(
+            ok=False,
+            duration_s=time.monotonic() - start,
+            engine_stale=stale_info,
+            error={
+                "kind": "invalid-args",
+                "detail": "--character/--time require a pose_clip (rest dumps are the "
+                "procedural field iso-surface; the posed PLY already carries rest positions)",
+                "argv": argv0,
+                "hint": "pass pose_clip (e.g. clip-cin-stand-attention) to dump an import or override time",
+            },
+        )
+
     config.ensure_data_dirs()
     stem = _dump_stem(label, character_json, sex)
     pose_part = _sanitize(pose_clip) if pose_clip else "rest"
@@ -426,14 +454,16 @@ def _run_field_dump(
         argv += ["--pose", pose_clip]
     if character_json is not None:
         argv += ["--character", str(character_json)]
-    if time_s is not None and "--time" in help_text:
-        argv += ["--time", f"{time_s:g}"]
+    # Posed-only levers (the patched engine exits 2 on them without --pose):
     palette_target: Path | None = None
-    if want_palette and "--palette-out" in help_text:
-        palette_target = out_ply.with_suffix(".palette.json")
-        argv += ["--palette-out", str(palette_target)]
-    if want_weights and "--weights" in help_text:
-        argv.append("--weights")
+    if pose_clip:
+        if time_s is not None and "--time" in help_text:
+            argv += ["--time", f"{time_s:g}"]
+        if want_palette and "--palette-out" in help_text:
+            palette_target = out_ply.with_suffix(".palette.json")
+            argv += ["--palette-out", str(palette_target)]
+        if want_weights and "--weights" in help_text:
+            argv.append("--weights")
 
     result, stderr_text = _run(argv, timeout_s)
     result.duration_s = time.monotonic() - start

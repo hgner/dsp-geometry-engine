@@ -25,7 +25,9 @@ docker push <account>.dkr.ecr.<region>.amazonaws.com/dsp-geometry-engine:latest
 ## AWS: App Runner (simplest path)
 
 1. Create an App Runner service pointing at the ECR image.
-2. Port: 8000. Health check: TCP (or the MCP endpoint path).
+2. Port: 8000. Health check: **TCP only** — an HTTP probe against `/mcp` can never return 2xx
+   (the bearer middleware 401s unauthenticated probes, and FastMCP 4xxes plain GETs without MCP
+   Accept headers).
 3. Set env vars (see reference table below) — at minimum `DSP_AUTH_TOKEN` (from Secrets Manager).
 4. Deploy. App Runner gives you TLS and a URL out of the box.
 

@@ -162,6 +162,14 @@ def main(argv: list[str]) -> int:  # deliberately mirrors the C++ arg loop
         _err("--out is required")
         return 2
 
+    # Mirror of the patched CLI's guard (main.cpp): posed-only levers without --pose -> exit 2.
+    if not pose and (character or time_s is not None or palette_out or weights):
+        _err(
+            "--character/--time/--palette-out/--weights require --pose "
+            "(the posed PLY already carries rest positions)"
+        )
+        return 2
+
     _err(f"body-measurements bust={bust:g} waist={waist:g} hips={hips:g} height={height:g}")
 
     if list_sources:

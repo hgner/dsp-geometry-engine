@@ -150,9 +150,16 @@ def spectral_peaks(
     if f.size < 3:
         return []
     floor = max(float(np.median(p)), _TINY)
-    idx, props = sps.find_peaks(p, prominence=0.0)
+    # find_peaks cannot return array endpoints, so a dominant peak landing in the
+    # first (or last) selected bin would be structurally invisible — pad with the
+    # band minimum so band-edge maxima become interior peaks (finite prominence,
+    # no ranking hijack), then shift indices back.
+    pad = float(np.min(p))
+    padded = np.concatenate(([pad], p, [pad]))
+    idx, props = sps.find_peaks(padded, prominence=0.0)
     if idx.size == 0:
         return []
+    idx = idx - 1  # undo the sentinel offset
     order = np.argsort(props["prominences"])[::-1][:max_peaks]
     out: list[tuple[float, float]] = []
     for k in order:

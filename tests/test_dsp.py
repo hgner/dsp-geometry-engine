@@ -203,3 +203,30 @@ def test_corrugation_extent_localizes_ripple_window():
     assert abs(t_start - ripple_start) <= 0.20 * window
     assert abs(t_end - ripple_end) <= 0.20 * window
     assert 0.3 < fraction <= 1.0
+
+
+def test_band_edge_peak_is_visible():
+    """Regression (review finding): a dominant peak landing in the FIRST bin at or
+    above f_min must not be structurally invisible to find_peaks (endpoints)."""
+    from dsp_server.engine.filters import spectral_peaks
+
+    span = 0.25
+    n = 256
+    dt = span / n
+    t = np.arange(n) * dt
+    # 12 cy/m tone == roughness() f_cut default == first selected bin (df = 4 cy/m)
+    y = 0.02 * np.sin(2 * np.pi * 12.0 * t)
+    win = np.hanning(n)
+    psd = np.abs(np.fft.rfft(y * win)) ** 2
+    freqs = np.fft.rfftfreq(n, d=dt)
+    peaks = spectral_peaks(freqs, psd, f_min_cpm=12.0)
+    assert peaks, "band-edge dominant peak must be detected"
+    assert abs(peaks[0][0] - 12.0) <= freqs[1] - freqs[0]
+    assert peaks[0][1] > 6.0
+
+    # Full-pipeline version: 12 cy/m corrugation on the mesh -> corrugated verdict
+    dump = make_cylinder(corrugation_amp=CORR_AMP, corrugation_freq_cpm=12.0)
+    _, report = _analyze(dump)
+    assert report.corrugated is True
+    assert abs(report.dominant_freq_cpm - 12.0) <= 2.0 * (1.0 / report.dominant_wavelength_m / 12.0 + 5.0)
+    assert abs(report.dominant_freq_cpm - 12.0) < 10.0
