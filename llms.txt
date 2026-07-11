@@ -1,0 +1,72 @@
+# DSP-Geometry-Engine — canonical rules for LLM agents
+
+> MCP server turning proje7-engine vertex dumps into 1D signals, FFT/roughness math, and compact JSON.
+> Mission: root-cause the forearm corrugation on the imported `cc0_male_rigged3` character.
+> These rules are ground truth verified against engine source. When in doubt, they win over intuition.
+
+## Rules
+
+1. The dump tool is `layered_field_dump_cli` — there is no `provmap_cli`. Engine executables live
+   under `build/<preset>/` inside the engine checkout (never `build/bin`). Preferred binary:
+   `build/windows-msvc-static-md-release/layered_field_dump_cli.exe` (no DXR/GPU dependency).
+   CLI surface: `--sex male|female --out <ply> [--pose <clipId>] [--list-sources] [--bust-cm ...]`.
+   Patched builds add `--character <baked.json>`, `--time <sec>`, `--palette-out <json>`, `--weights`;
+   the bridge feature-detects these via `--help` — never assume they exist on a given exe.
+   Exit codes: unknown argument or missing `--out` -> 2; runtime failure -> 1.
+
+2. PLY contract (ASCII 1.0 only; binary is rejected). Vertex properties, in order:
+   `float x y z nx ny nz`, `uchar red green blue`, `int sourceIndex`, `float restx resty restz`;
+   patched `--weights` appends `int j0 j1 j2 j3` + `float w0 w1 w2 w3`. Face rows are literally
+   `3 i j k`. Engine dumps are post-import-pipeline and in meters; the raw baked character JSON is
+   pre-pipeline and in centimeters — never mix the two spaces without applying the import scale.
+
+3. Quirk that must never be "fixed": the vertex property NAMED `sourceIndex` carries the dominant
+   skin-joint index (argmax of the vertex's 4 weights), not a field-source id. If a future writer
+   emits a property literally named `dominantJoint`, that one wins.
+
+4. One posed dump contains BOTH bind (`restx/resty/restz`) and posed (`x/y/z`) positions on the same
+   vertex row — bind-vs-posed comparison needs exactly one engine invocation. Rest iso-surface dumps
+   come from a different pipeline with a different vertex count: only compare vertex counts
+   posed-vs-posed, never posed-vs-rest-mode.
+
+5. The bone table exists ONLY on stderr: `bone-map: 0=pelvis 1=spine ...`. Also on stderr:
+   `...-posed-ok clip=<clipId> sampleTime=<sec> verts=<n>` and
+   `deformers applied (collisionPush=<float> bakedCollisionPush=<float>)` — those floats are the max
+   deformer push MAGNITUDES in meters (e.g. 0.0012), not counts. Parsed metadata is persisted next to
+   each dump as `<dump>.meta.json`; patched `--character` runs additionally log
+   `import-ok verts=... bones=... clips=... packClips=...`.
+
+6. The asset is `D:\Library\characters\cc0_male_rigged3.baked.json`. Its own `clips` array is empty —
+   engine clips are retargeted onto the import at load time. Useful clip ids:
+   `clip-cin-stand-attention` (near-rest) and `clip-cin-walktalk` (flexion). Forearm bones are
+   `armLowerL` / `armLowerR` in the 55-bone engine-canonical skeleton.
+
+7. Units: all spectra are reported in cycles/meter (`dominant_freq_cpm`), always accompanied by
+   `wavelength_m` (= 1/f) and `ridge_count_est`, the estimated ridge count over the analyzed segment
+   length. Never report cycles-per-bin or cycles-per-sample.
+
+8. Prime corrugation suspects, in order: (a) engine deformers / collision capsules attached to the
+   character at import — capsule welds under flexion; correlate the dominant wavelength against the
+   forearm capsule geometry from `--list-sources` (~265 field sources: kind/a/b/r0/r1/blendK/bone);
+   (b) the retargeted skin weights (retarget is by bone NAME, index-safe for weights). The dual
+   telemetry decides: corrugation in BOTH the pure-numpy LBS and the engine dump -> weights are
+   guilty; in the engine dump only -> deformers are guilty; in neither -> escalate to the
+   render-space imaging lane.
+
+9. The corrugation was originally observed in depth RENDERS. Check CPU vertex dumps
+   (position-space) first; if position-space is quiet, check the normal channel (nx/ny/nz, already in
+   the PLY) before drawing any conclusion; escalate to render-side causes (imaging lane,
+   `compare_depth_renders`) only if position-space is clean. Never assert that the defect exists in
+   vertex dumps until a forearm spectral peak has actually been confirmed there.
+
+10. Stale-binary policy: every bridge response carries an `engine_stale` flag (exe mtime vs the
+    newest engine source under `src/core` + `tools/layered-field-dump` + CMake files). It is a
+    WARNING only — the server never auto-builds (17-minute engine builds would blow MCP timeouts).
+    Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
+    relink together (stale-sibling policy).
+
+11. Six MCP tools: `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`,
+    `localize_defect`, `lbs_differential` (geometry pack) and `compare_depth_renders` (imaging pack).
+    Every tool returns a compact pydantic-JSON summary — arrays never cross the MCP boundary, they
+    live on disk under `data/`. Tool packs are toggled per client with the `DSP_TOOLSETS` env var
+    (comma-separated pack names; unset = all packs).
