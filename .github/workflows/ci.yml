@@ -1,0 +1,44 @@
+# Python-only CI (plan M3): lint + format + tests on both OSes against the stub
+# engine (conftest points DSP_ENGINE_CLI at tests/stub_engine.py). C++ verification
+# is deliberately local-only (scripts/verify-engine.ps1). The docker job (plan M9)
+# builds the image to keep the Dockerfile honest — no push.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Tests
+        run: uv run pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image (no push)
+        run: docker build -t dsp-geometry-engine:ci .
