@@ -131,6 +131,42 @@ def _eval_fr(model: str, wi: np.ndarray, wo: np.ndarray, params: dict[str, float
     raise ValueError(f"unknown BRDF model '{model}' (expected one of {list(MODELS)})")
 
 
+def _ggx_albedo_is(
+    wo_theta: float, roughness: float, f0: float, d_gain: float, n_u1: int, n_u2: int
+) -> float:
+    """GGX directional albedo by importance-sampling the NDF (split-sum estimator).
+
+    A fixed angular grid cannot resolve the razor-sharp GGX lobe at low roughness,
+    so a uniform-quadrature rho is wrong in both directions there. Sampling the
+    half-vector from ``D(h)cos_h`` on a deterministic stratified (u1, u2) grid makes
+    the sharp ``D`` cancel: the per-sample weight is ``d_gain*G*F*(wo.h)/(cos_o*cos_h)``,
+    which is smooth and converges at every roughness. ``d_gain`` still scales rho
+    (the leak factor survives because sampling uses the physical D, evaluation the
+    gained one), so the energy-leak detector is unaffected.
+    """
+    alpha = max(alpha_of(roughness), _ALPHA_FLOOR)
+    a2 = alpha * alpha
+    wo = _wo_vector(float(wo_theta))
+    cos_o = float(wo[2])
+    if cos_o <= _TINY:
+        return 0.0
+    u1 = (np.arange(int(n_u1)) + 0.5) / int(n_u1)
+    u2 = (np.arange(int(n_u2)) + 0.5) / int(n_u2)
+    uu1, uu2 = np.meshgrid(u1, u2, indexing="ij")
+    cos_h = np.sqrt(np.clip((1.0 - uu1) / (1.0 + (a2 - 1.0) * uu1), 0.0, 1.0))
+    sin_h = np.sqrt(np.clip(1.0 - cos_h * cos_h, 0.0, 1.0))
+    phi_h = 2.0 * np.pi * uu2
+    h = np.stack([sin_h * np.cos(phi_h), sin_h * np.sin(phi_h), cos_h], axis=-1)
+    wo_dot_h = np.sum(h * wo, axis=-1)
+    wi = 2.0 * wo_dot_h[..., None] * h - wo  # reflect wo about h
+    cos_i = wi[..., 2]
+    g = smith_g(cos_i, cos_o, alpha)
+    f = schlick_f(np.clip(wo_dot_h, 0.0, 1.0), f0)  # cos_d = wi.h = wo.h by reflection
+    weight = d_gain * g * f * np.clip(wo_dot_h, 0.0, None) / np.maximum(cos_o * cos_h, _TINY)
+    weight = np.where((cos_i > _TINY) & (wo_dot_h > _TINY), weight, 0.0)
+    return float(np.mean(weight))
+
+
 def hemisphere_albedo(
     model: str,
     wo_theta: float,
@@ -138,18 +174,29 @@ def hemisphere_albedo(
     n_phi: int = 256,
     params: dict[str, float] | None = None,
 ) -> float:
-    """Directional albedo ``rho(wo)`` by hemisphere integration of ``f_r * cos_i``.
+    """Directional albedo ``rho(wo) = INT f_r(wi,wo) cos_i dwi`` (energy <= 1).
 
-    ``wo`` is fixed at polar angle ``wo_theta`` (azimuth 0). Gauss-Legendre nodes
-    in ``mu = cos_theta_i`` over ``(0, 1)`` (never grazing/degenerate) crossed with
-    a uniform midpoint grid in ``phi``. Returns ``rho(wo)``.
+    Lambertian: Gauss-Legendre in ``mu = cos_theta_i`` x uniform ``phi`` (exact for
+    the cos-weighted integral). GGX: NDF importance sampling on an ``n_theta x n_phi``
+    stratified grid (:func:`_ggx_albedo_is`) — the only scheme that stays accurate as
+    the specular lobe sharpens toward a mirror.
     """
     n_theta = int(n_theta)
     n_phi = int(n_phi)
     if n_theta < 1 or n_phi < 1:
         raise ValueError("n_theta and n_phi must be >= 1")
+    if model == "ggx":
+        return _ggx_albedo_is(
+            float(wo_theta),
+            _param(params, "roughness", 0.5),
+            _param(params, "f0", 0.04),
+            _param(params, "d_gain", 1.0),
+            n_theta,
+            n_phi,
+        )
+    if model != "lambertian":
+        raise ValueError(f"unknown BRDF model '{model}' (expected one of {list(MODELS)})")
     wo = _wo_vector(float(wo_theta))
-
     nodes, weights = np.polynomial.legendre.leggauss(n_theta)
     mu = 0.5 * (nodes + 1.0)  # cos_theta_i in (0, 1)
     w_mu = 0.5 * weights
@@ -157,18 +204,14 @@ def hemisphere_albedo(
 
     phi = 2.0 * np.pi * (np.arange(n_phi) + 0.5) / n_phi
     w_phi = 2.0 * np.pi / n_phi
-    cphi = np.cos(phi)
-    sphi = np.sin(phi)
-
-    wx = sin_i[:, None] * cphi[None, :]
-    wy = sin_i[:, None] * sphi[None, :]
+    wx = sin_i[:, None] * np.cos(phi)[None, :]
+    wy = sin_i[:, None] * np.sin(phi)[None, :]
     wz = np.broadcast_to(mu[:, None], (n_theta, n_phi))
     wi = np.stack([wx, wy, wz], axis=-1)
 
     fr = _eval_fr(model, wi, wo, params)
     integrand = fr * mu[:, None]  # f_r * cos_i
-    rho = float(np.sum(integrand * w_mu[:, None] * w_phi))
-    return rho
+    return float(np.sum(integrand * w_mu[:, None] * w_phi))
 
 
 def albedo_sweep(

@@ -868,6 +868,11 @@ def _group_delay(
                     f"series_a has {sa.y.size} samples but series_b has {sb.y.size} — "
                     "cross-spectral group delay needs equal-length, vertex-correspondent signals"
                 )
+            if sa.dt is not None and sb.dt is not None and not np.isclose(sa.dt, sb.dt):
+                raise ValueError(
+                    f"series_a and series_b carry different sample spacing (dt={sa.dt} vs {sb.dt}) — "
+                    "a cross-spectral group delay needs a common time base; resample one first"
+                )
             dt_opt = sa.dt if sa.dt is not None else (sb.dt if sb.dt is not None else dt)
             if dt_opt is None:
                 raise ValueError(_NO_DT_MSG)

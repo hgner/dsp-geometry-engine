@@ -579,12 +579,37 @@ def group_delay_lti(
             raise ValueError("digital group delay needs dt > 0 (the sample period)")
         dt = float(dt)
         _wout, gd = sps.group_delay((b, a), w=w / (2.0 * np.pi), fs=1.0 / dt)
-        return w, np.asarray(gd, dtype=np.float64), "samples"
+        # Group delay is undefined at transmission zeros on the unit circle (e.g. an
+        # even-length moving average's zero at Nyquist), where scipy emits a spurious
+        # value; null those points so they cannot corrupt the tau summary.
+        _, hmag = sps.freqz(b, a, worN=w * dt)
+        mag = np.abs(hmag)
+        gd = np.asarray(gd, dtype=np.float64)
+        null_mag = mag <= 1e-9 * float(np.max(mag)) if mag.size else np.zeros_like(gd, dtype=bool)
+        gd[null_mag | ~np.isfinite(gd)] = np.nan
+        return _finite_grid(w, gd, "samples")
+    # Analog: exact analytic group delay tau_g = Re(D'(jw)/D(jw) - N'(jw)/N(jw)).
+    # Differentiating an unwrapped phase on a coarse grid fails for high-Q resonances
+    # (per-sample phase step > pi defeats np.unwrap -> impossible negative delays); the
+    # closed form is exact and reads the same b/a the response uses.
     s = 1j * w
-    h = np.polyval(b, s) / np.polyval(a, s)
-    phase = np.unwrap(np.angle(h))
-    tau = -np.gradient(phase, w)
-    return w, np.asarray(tau, dtype=np.float64), "seconds"
+    d_num = np.polyval(np.polyder(b), s)
+    d_den = np.polyval(np.polyder(a), s)
+    num = np.polyval(b, s)
+    den = np.polyval(a, s)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tau = np.real(d_den / den - d_num / num)
+    tau[~np.isfinite(tau)] = np.nan  # poles/zeros on the jw axis are genuine singularities
+    return _finite_grid(w, tau, "seconds")
+
+
+def _finite_grid(w: np.ndarray, tau: np.ndarray, unit: str) -> tuple[np.ndarray, np.ndarray, str]:
+    """Drop grid points where the group delay is undefined (NaN), keeping the summary
+    stats honest; if every point is singular, return the raw arrays unchanged."""
+    keep = np.isfinite(tau)
+    if keep.any() and not keep.all():
+        return w[keep], tau[keep], unit
+    return w, np.asarray(tau, dtype=np.float64), unit
 
 
 def group_delay_xspec(a: np.ndarray, b: np.ndarray, dt: float) -> tuple[np.ndarray, np.ndarray]:

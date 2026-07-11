@@ -14,8 +14,8 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from dsp_server.engine import ltisys, symmath, tabular
-from dsp_server.toolsets import AppContext, ml
+from dsp_server.engine import brdf, ltisys, symmath, tabular
+from dsp_server.toolsets import AppContext, ml, systems
 
 
 @pytest.fixture
@@ -111,3 +111,55 @@ def test_first_order_step_has_no_peak_time(t_end):
     metrics = ltisys.step_metrics(t, y)
     assert metrics.overshoot_pct == pytest.approx(0.0, abs=1e-6)
     assert metrics.peak_time is None
+
+
+# --- advanced-tools review (group_delay + BRDF) ---------------------------- #
+
+
+def test_analog_group_delay_resonance_nonnegative():
+    """Major: an all-pole (minimum-phase) resonance must have tau_g >= 0 everywhere;
+    the old phase-gradient produced impossible negative delays."""
+    w = np.logspace(-2, 2, 2000)
+    _, tau, unit = ltisys.group_delay_lti(None, w, "s", None, ba=([1.0], [1.0, 0.01, 1.0]))
+    assert unit == "seconds"
+    assert np.all(tau >= -1e-9)
+    assert tau.max() > 10.0  # a genuine resonant peak, not a flat 0
+
+
+def test_digital_group_delay_even_moving_average():
+    """Minor: an even-length moving average has a zero at Nyquist; its group delay is a
+    constant (N-1)/2 = 1.5, not the spurious 3.0 scipy returns at that singular point."""
+    w = np.linspace(1e-3, np.pi - 1e-3, 400)
+    _, tau, unit = ltisys.group_delay_lti(None, w, "z", 1.0, ba=([1, 1, 1, 1], [1.0]))
+    assert unit == "samples"
+    assert tau.max() == pytest.approx(1.5, abs=1e-6)
+
+
+def test_cross_spectrum_rejects_mismatched_dt(tmp_path):
+    """Minor: two series with different embedded dt must not silently use one dt."""
+    a = tmp_path / "a.npz"
+    b = tmp_path / "b.npz"
+    np.savez(a, y=np.sin(np.arange(256) * 0.1), dt=0.1)
+    np.savez(b, y=np.sin(np.arange(256) * 0.1), dt=0.5)
+    ctx = AppContext(
+        data_dir=tmp_path / "d",
+        dumps_dir=tmp_path / "d" / "dumps",
+        cache_dir=tmp_path / "d" / "cache",
+        plots_dir=tmp_path / "d" / "plots",
+        logs_dir=tmp_path / "d" / "logs",
+        engine_root=tmp_path / "engine",
+    )
+    out = json.loads(systems._group_delay(ctx, series_a=str(a), series_b=str(b), column_a="y", column_b="y"))
+    assert "error" in out
+    assert "different sample spacing" in out["error"]
+
+
+def test_brdf_low_roughness_leak_and_valid():
+    """Major: the white-furnace verdict must be correct at low roughness (sharp lobe).
+    f0=1 is the canonical furnace input; roughness 0.05-0.1 is a polished material."""
+    leak = brdf.hemisphere_albedo("ggx", 0.0, params={"roughness": 0.05, "f0": 1.0, "d_gain": 1.35})
+    assert leak > 1.05  # a real 35% energy leak is caught, not passed
+    valid = brdf.hemisphere_albedo(
+        "ggx", np.radians(30.0), params={"roughness": 0.1, "f0": 1.0, "d_gain": 1.0}
+    )
+    assert valid <= 1.0 + 1e-3  # a physical BRDF does not trip a spurious leak alarm
