@@ -45,13 +45,13 @@
    `dominant_wavelength_m` (= 1/f) and `ridge_count_est`, the estimated ridge count over the analyzed
    segment length. Never report cycles-per-bin or cycles-per-sample.
 
-8. Prime corrugation suspects, in order: (a) engine deformers / collision capsules attached to the
-   character at import — capsule welds under flexion; correlate the dominant wavelength against the
-   forearm capsule geometry from `--list-sources` (~265 field sources: kind/a/b/r0/r1/blendK/bone);
-   (b) the retargeted skin weights (retarget is by bone NAME, index-safe for weights). The dual
-   telemetry decides: corrugation in BOTH the pure-numpy LBS and the engine dump -> weights are
-   guilty; in the engine dump only -> deformers are guilty; in neither -> escalate to the
-   render-space imaging lane.
+8. Corrugation RCA VERDICT (measured 2026-07-11, first rigged3 vertex dumps): the forearm ripple is
+   118-123 cy/m (~8.4 mm = the mesh edge-loop spacing, ~20 dB prominence) and exists IDENTICALLY in
+   the raw baked JSON's bind positions (engine rest matches raw JSON to 0.005 mm; posed ≈ rest;
+   deformer pushes <= 0.7 mm). Engine capsule welds, flexion deformers, and retargeted weights are
+   EXONERATED — the defect originates in the Blender retarget/bake (`retarget_realistic.py` ->
+   `character_bake_cli`). Pelvis (19.4 dB @ 79 cy/m) and spine show similar peaks. The dual-telemetry
+   method (pure-LBS vs engine dump) remains the tool for future imports.
 
 9. The corrugation was originally observed in depth RENDERS. Check CPU vertex dumps
    (position-space) first; if position-space is quiet, check the normal channel (nx/ny/nz, already in
@@ -65,8 +65,44 @@
     Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
     relink together (stale-sibling policy).
 
-11. Six MCP tools: `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`,
-    `localize_defect`, `lbs_differential` (geometry pack) and `compare_depth_renders` (imaging pack).
+11. Tool packs (see the README table for the full 36-tool inventory): `geometry`
+    (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`,
+    `lbs_differential`), `imaging`, `stats`, `engmath`, `systems`, `ml`, `netqueue`, `os`.
     Every tool returns a compact pydantic-JSON summary — arrays never cross the MCP boundary, they
-    live on disk under `data/`. Tool packs are toggled per client with the `DSP_TOOLSETS` env var
-    (comma-separated pack names; unset = all packs).
+    live on disk under `data/` (plots/, series/, images/, features/, models/). Packs are toggled per
+    client with the `DSP_TOOLSETS` env var (comma-separated pack names; unset = all packs). General
+    data goes in as .csv/.tsv/.json/.npz/.npy paths (column-addressed); `.ply` paths address engine
+    dumps as `column="<joint>[:posed|rest]"`.
+
+12. stats pack (ELE320): `describe`, `fit_distribution` (MLE + AIC + KS/chi2), `hypothesis_test`
+    (auto/t/welch/mannwhitney/ks2/f_var/levene), `regression_fit` (OLS + CIs + residual diagnostics),
+    `compare_dump_ripples` (bootstrap CI + unpaired Mann-Whitney on sector band energies — the
+    SIGNIFICANCE verdict; for descriptive deltas use `compare_geometry_signals`). On `.ply` inputs,
+    n = axial profile samples, not vertices.
+
+13. imaging pack (ELE490 additions): `enhance_image` (histogram_eq/adaptive/gamma/log),
+    `filter_image` (gaussian/median/unsharp/sobel/butterworth — Gonzalez-Woods H=1/(1+(D/D0)^2n)),
+    `segment_image` (otsu/adaptive/kmeans + morphology + component stats — the defect-mask tool),
+    `restore_image` (wiener). All write PNGs under data/images/ and return paths + stats only.
+
+14. engmath pack (MAT235+236, sympy): `solve_ode`, `laplace_transform`, `linear_algebra`,
+    `residues_and_integrals`, `fourier_series`. Expression strings are parsed with a restricted
+    sympy namespace (whitelisted functions, literal-size gates) — hostile or huge expressions get a
+    fast ToolError, never an eval. Symbolic results return latex + plain text.
+
+15. systems pack (ELE301): `lti_response`, `pole_zero`, `bode` (+margins), `sampling_check`
+    (aliasing verdict; needs the reference sampled well above the proposed rate), `convolve_signals`.
+    Formats without an intrinsic dt (csv/json) require an explicit dt= argument.
+
+16. ml pack (ELE489, scikit-learn): `feature_engineer_dump` (per-vertex features -> data/features/),
+    `cluster`, `reduce_dims` (pca/lda), `classify_eval` (k-fold CV; persists model + sidecar to
+    data/models/), `predict` (ONLY loads models this server wrote — path-confined to data/models/).
+    Everything is seeded; rerunning with the same seed reproduces results.
+
+17. netqueue pack (ELE412): `queueing_calc` (mm1/mmm/mg1 via Pollaczek-Khinchine; scv=0 -> M/D/1),
+    `little_law`, `erlang_blocking` (Erlang-B/C). Unstable inputs (rho >= 1) return
+    "unstable queue: rho=<v> >= 1" with the remedy in the hint.
+
+18. os pack (Tanenbaum): `schedule_sim` (fcfs/sjf/srtf/rr/priority + Gantt), `page_replacement_sim`
+    (fifo/lru/opt/clock; OPT is the offline lower bound), `bankers_check` (safe sequence via
+    pass-continuation scan). Deterministic textbook simulators — same input, same output.

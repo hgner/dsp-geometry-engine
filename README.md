@@ -16,18 +16,27 @@ MCP registration is automatic in Claude Code: the committed `.mcp.json` starts t
 `uv run dsp-server` when you open this project. For Claude Desktop, run
 `scripts/register-claude-desktop.ps1`.
 
-## Tools
+## Tool packs
 
-| Tool | One-liner |
-| --- | --- |
-| `extract_mesh_telemetry` | Run the engine dump CLI on a character/clip; return paths, counts, bone map, deformer push stats. |
-| `analyze_corrugation` | FFT/roughness report for one joint segment (cycles/meter, wavelength, ridge count, verdict). |
-| `compare_geometry_signals` | Compare two channels/dumps (e.g. rest vs posed) — spectra plus per-vertex displacement stats. |
-| `localize_defect` | Per-joint roughness ranking across the whole mesh: forearm-only or systemic, in one call. |
-| `lbs_differential` | Pure-numpy LBS vs engine dump differential — isolates weight bugs from deformer bugs. |
-| `compare_depth_renders` | 2D spectral/SSIM comparison of depth/AOV PNGs (render-space cross-validation). |
+36 tools across 8 course packs (the engine's own DSP lane plus one pack per relevant EE course). Each
+pack registers by default; trim per client with the `DSP_TOOLSETS` env var (comma-separated names).
+General data goes in as `.csv/.tsv/.json/.npz/.npy` paths (column-addressed); `.ply` paths address
+engine dumps as `column="<joint>[:posed|rest]"`.
 
-All tools return small JSON summaries; arrays stay on disk under `data/`.
+| Pack (`DSP_TOOLSETS` name) | Course | Tools |
+| --- | --- | --- |
+| `geometry` | ELE407 DSP | `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`, `lbs_differential` |
+| `imaging` | ELE490 Image Processing | `compare_depth_renders`, `enhance_image`, `filter_image`, `segment_image`, `restore_image` |
+| `stats` | ELE320 Probability & Statistics | `describe`, `fit_distribution`, `hypothesis_test`, `regression_fit`, `compare_dump_ripples` |
+| `engmath` | MAT235/236 Engineering Math | `solve_ode`, `laplace_transform`, `linear_algebra`, `residues_and_integrals`, `fourier_series` |
+| `systems` | ELE301 Signals & Systems | `lti_response`, `pole_zero`, `bode`, `sampling_check`, `convolve_signals` |
+| `ml` | ELE489 Machine Learning | `feature_engineer_dump`, `cluster`, `reduce_dims`, `classify_eval`, `predict` |
+| `netqueue` | ELE412 Data Communication | `queueing_calc`, `little_law`, `erlang_blocking` |
+| `os` | Operating Systems (Tanenbaum) | `schedule_sim`, `page_replacement_sim`, `bankers_check` |
+
+All tools return small JSON summaries; arrays, plots, models, and images stay on disk under `data/`
+(`plots/`, `series/`, `images/`, `features/`, `models/`). Preset examples: `DSP_TOOLSETS=geometry,imaging,stats`
+for a corrugation-RCA session; `DSP_TOOLSETS=engmath,systems,stats` for coursework-style calculation.
 
 ## Docs
 
