@@ -49,6 +49,7 @@ __all__ = [
     "kmeans_gray",
     "laplacian_sharpness",
     "load_image_gray",
+    "load_image_rgb",
     "log_transform",
     "median_smooth",
     "otsu_threshold",
@@ -89,6 +90,29 @@ def load_image_gray(path: Path | str) -> np.ndarray:
     if arr.ndim != 2:
         raise ValueError(f"{path}: expected a single-channel image, got array shape {arr.shape}")
     return np.clip(arr, 0.0, 1.0)
+
+
+def load_image_rgb(path: Path | str) -> np.ndarray:
+    """Load an image as an (h, w, 3) float64 RGB array in [0, 1].
+
+    For AOV passes whose three channels must be PRESERVED — a normal map (xyz
+    packed into rgb) or an albedo pass — unlike :func:`load_image_gray`, which
+    collapses to luminance. 16-bit and float modes are normalized as in
+    load_image_gray; a single-channel image is broadcast to three identical
+    channels; a 4-channel (RGBA) image keeps only rgb.
+    """
+    with Image.open(path) as im:
+        if im.mode in _SIXTEEN_BIT_MODES:
+            arr = np.asarray(im, dtype=np.float64) / 65535.0
+        elif im.mode == "F":
+            arr = np.asarray(im, dtype=np.float64)
+        else:
+            arr = np.asarray(im.convert("RGB"), dtype=np.float64) / 255.0
+    if arr.ndim == 2:
+        arr = np.repeat(arr[:, :, None], 3, axis=2)
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        raise ValueError(f"{path}: expected an RGB image, got array shape {arr.shape}")
+    return np.clip(arr[:, :, :3], 0.0, 1.0)
 
 
 def crop_roi(img: np.ndarray, roi: Roi) -> np.ndarray:

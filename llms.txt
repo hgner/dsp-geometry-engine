@@ -65,7 +65,7 @@
     Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
     relink together (stale-sibling policy).
 
-11. Tool packs (see the README table for the full 41-tool inventory): `geometry`
+11. Tool packs (see the README table for the full 47-tool inventory): `geometry`
     (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`,
     `lbs_differential`, `score_bake`, `analyze_mesh_topology`), `imaging`, `stats`, `engmath`,
     `systems`, `ml`, `netqueue`, `os`, `rendering`. When/where to reach for each in an engine session
@@ -119,12 +119,23 @@
     / non-manifold edges / valence / Euler / geodesic — whole-mesh QA, complementing per-joint
     `analyze_corrugation`).
 
-20. video pack (AI-video comparison gate; frames = a directory or path list of images):
-    `evaluate_spatiotemporal_frequencies` (3-D FFT over the T axis — high temporal-frequency energy =
-    flicker/boil; gen-vs-ref delta) and `verify_motion_consistency` (bidirectional Lucas-Kanade
+20. video pack (AI-video comparison gate). Two TEMPORAL tools take frames = a directory or path list of
+    images: `evaluate_spatiotemporal_frequencies` (3-D FFT over the T axis — high temporal-frequency
+    energy = flicker/boil; gen-vs-ref delta) and `verify_motion_consistency` (bidirectional Lucas-Kanade
     forward-backward residual ||f + b(p+f)|| — a deterministic hallucination map where motion disobeys
-    geometry; pure-scipy flow, not calibrated OpenCV). The SPATIAL half of the gate is
-    `compare_wavelet_signatures` (imaging pack): per-scale wavelet band-energy parity — macro geometry
-    vs micro texture, so "Scale-4 macro 99% / Scale-1 micro -40%" localizes generator smoothing.
-    The comparison gate spans packs: `score_bake` (silhouette/shape) + `compare_wavelet_signatures`
-    (spatial detail) + the video pack (temporal). See docs/ENGINE-PLAYBOOK.md.
+    geometry; pure-scipy flow, not calibrated OpenCV). Three PER-FRAME GEOMETRIC/PHOTOMETRIC gates
+    validate one generated frame against the engine's ground-truth AOV passes: `verify_camera_projection`
+    (Shi-Tomasi corners tracked ref->gen by the repo's own LK, then homography + fundamental-matrix
+    RANSAC fits — homography drives the verdict camera-consistent/camera-drift/geometry-inconsistent;
+    the requested symmetric epipolar distance is reported but flagged `epipolar_degenerate` on a
+    same-view/zero-parallax pair where F is unidentifiable), `analyze_photometric_consistency` (does the
+    generated shading obey the engine NORMAL pass — Lambertian S~ambient+N.L least-squares fit, R^2 is
+    the verdict; optional ALBEDO pass adds the albedo->shading gradient leak; a linear proxy, no
+    shadow/clamp modeling) and `evaluate_occlusion_boundaries` (variance-of-Laplacian sharpness of the
+    generated frame inside the DEPTH pass's Sobel-edge band vs interior; with a reference render the
+    gen/ref boundary-sharpness ratio is the reliable read for depth-layer bleeding). The SPATIAL-detail
+    half of the gate is `compare_wavelet_signatures` (imaging pack): per-scale wavelet band-energy parity
+    — macro geometry vs micro texture, so "Scale-4 macro 99% / Scale-1 micro -40%" localizes generator
+    smoothing. The comparison gate spans packs: `score_bake` (silhouette/shape) +
+    `compare_wavelet_signatures` (spatial detail) + the video pack (temporal + camera/lighting/occlusion).
+    See docs/ENGINE-PLAYBOOK.md.

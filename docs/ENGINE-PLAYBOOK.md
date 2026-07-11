@@ -20,7 +20,7 @@ Two standing rules when you use them on the engine:
    tools cross-check, localize, and explain — they don't replace the in-engine gate.
 
 Trim the visible tool set per session with `DSP_TOOLSETS` (e.g. `geometry,rendering` for a mesh+shader
-session) so the model isn't choosing among 41 tools when 8 are relevant.
+session) so the model isn't choosing among 47 tools when 8 are relevant.
 
 ---
 
@@ -37,6 +37,9 @@ session) so the model isn't choosing among 41 tools when 8 are relevant.
 | Corrugation seen only in depth renders, not verts | `compare_depth_renders`, `segment_image` | imaging |
 | Generated video shimmers / boils frame-to-frame | `evaluate_spatiotemporal_frequencies` | video |
 | Generated video: surfaces melt / drift / hallucinate | `verify_motion_consistency` | video |
+| Generated frame's camera drifted / FOV warped | `verify_camera_projection` | video |
+| Generated frame's lighting ignores the geometry | `analyze_photometric_consistency` | video |
+| Generated frame's occlusion edges are blurred / bleed | `evaluate_occlusion_boundaries` | video |
 | Generated frame looks soft / lost texture detail | `compare_wavelet_signatures` | imaging |
 | A feedback/physics loop won't reach a target state | `state_space_analysis` | systems |
 | Filter/controller stability, resonance, margins | `pole_zero`, `bode`, `lti_response` | systems |
@@ -140,6 +143,30 @@ mathematically, and it spans three packs — reach for the one that matches the 
   broke geometry. (Pure-scipy flow, honest about being less robust than OpenCV; the *consistency* signal
   is what matters, not calibrated flow.)
 
+The next three are PER-FRAME geometric/photometric gates: they validate ONE generated frame against the
+engine's ground-truth AOV passes (the engine renders exact camera / normal / depth buffers a generator
+can only guess). Run them on a representative keyframe.
+
+- **Camera drifted / FOV warped mid-shot** → `verify_camera_projection` (video): Shi-Tomasi corners in
+  the reference render, tracked into the generated frame by the repo's own Lucas-Kanade (forward-backward
+  gated), then a homography + a fundamental matrix are RANSAC-fit. The homography is the reliable read
+  (well-defined at any baseline) and drives the verdict: `camera-consistent` (correspondences near
+  identity), `camera-drift` (a single homography explains a non-trivial `camera_shift_px` / `camera_scale`
+  — pan/zoom/FOV), or `geometry-inconsistent` (no global camera model fits — local warping). The
+  `mean_symmetric_epipolar_distance_px` is the classic epipolar residual but is only meaningful with real
+  parallax, so a same-view pair is flagged `epipolar_degenerate` — don't read it then.
+- **Lighting ignores the geometry / baked-in shading** → `analyze_photometric_consistency` (video): fits
+  the engine NORMAL pass to the generated frame's shading as a Lambertian `S ~ ambient + N·L`. Red flag:
+  low `photometric_r2` (shading the true normals cannot explain = hallucinated lighting). With the ALBEDO
+  pass it also reports `albedo_shading_leak` (texture bleeding into shading = a failed intrinsic
+  decomposition). A linear proxy — it does not model cast shadows or the `max(0,·)` clamp; it is a
+  consistency gate, not a light solver.
+- **Occlusion edges blurred / depth layers bleed** → `evaluate_occlusion_boundaries` (video): the engine
+  DEPTH pass's Sobel discontinuities mark the true occlusion boundaries; the tool measures the generated
+  frame's variance-of-Laplacian (sharpness) inside that band. With a reference render, `gen_vs_ref_ratio`
+  < `ref_ok` is the firm read (the generator softened the edges); the `boundary_sharpness_ratio` vs flat
+  interior is the weaker, content-dependent fallback when no reference is given.
+
 Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry` and calls
 these over MCP against its generated-vs-reference frames — this server is the measurement product, the
 pipeline is the client.
@@ -203,7 +230,7 @@ dumps addressable as `column="<joint>[:posed|rest]"`:
 
 ## For a fresh engine session
 
-Register the server (it's already wired at user + project scope; new sessions see all 41 tools), set
+Register the server (it's already wired at user + project scope; new sessions see all 47 tools), set
 `DSP_TOOLSETS` to the lanes your task needs, and start from the symptom index above. The corrugation RCA
 is *closed* (verdict: source Blender bake, not the engine — see `llms.txt` rule 8), so a new mesh
 investigation begins with `analyze_mesh_topology` + `lbs_differential` to classify a fresh defect before

@@ -1,8 +1,7 @@
-"""Video tool pack — the TEMPORAL half of the comparison gate.
+"""Video tool pack — the AI-video comparison gate (generated clip vs engine truth).
 
-Two tools operating on a frame stack already on disk (a directory of frames or an
-explicit path list), the temporal counterpart to the imaging pack's per-frame
-spatial lane:
+Two TEMPORAL tools operate on a frame stack already on disk (a directory of frames
+or an explicit path list):
 
 * ``evaluate_spatiotemporal_frequencies`` — treats the sequence as an (T, H, W)
   volume and measures temporal frequency content (flicker / boil) that per-frame
@@ -10,11 +9,22 @@ spatial lane:
 * ``verify_motion_consistency`` — a deterministic optical-flow forward-backward
   hallucination detector (pure-scipy Lucas-Kanade, no OpenCV).
 
+Three per-frame GEOMETRIC / PHOTOMETRIC gates validate one generated frame against
+the engine's ground-truth AOV passes (the engine renders exact camera / normal /
+depth buffers a generator cannot):
+
+* ``verify_camera_projection`` — reference-vs-generated correspondences fit a global
+  homography + fundamental matrix (camera drift / FOV warp).
+* ``analyze_photometric_consistency`` — does the generated shading obey the true
+  normal pass (Lambertian ``S ~ ambient + N.L`` fit) — a lighting gate.
+* ``evaluate_occlusion_boundaries`` — sharpness (variance of Laplacian) at the depth
+  pass's discontinuities — a depth-layer-bleeding gate.
+
 Same contract as the other packs: every tool returns a pydantic model's
 ``model_dump_json()``; failures return a :class:`ToolError` envelope instead of
-raising; arrays/plots live under ``data/`` (npz + png), never inline. Each tool is
-a thin closure over :class:`AppContext` delegating to a module-level ``_impl`` the
-tests call directly.
+raising; arrays/plots/masks live under ``data/`` (npz + png), never inline. Each
+tool is a thin closure over :class:`AppContext` delegating to a module-level
+``_impl`` the tests call directly.
 """
 
 from __future__ import annotations
@@ -26,7 +36,7 @@ import numpy as np
 from mcp.server.fastmcp import FastMCP
 
 from dsp_server import plots
-from dsp_server.engine import optflow, stfreq, video
+from dsp_server.engine import epipolar, image2d, occlusion, optflow, photometric, stfreq, video
 from dsp_server.schemas import SchemaBase, ToolError
 from dsp_server.toolsets import AppContext
 
@@ -46,6 +56,19 @@ _STFREQ_HINT = (
 _MOTION_HINT = (
     "pass a directory of same-size frames or an explicit path list (>= 2 frames); "
     "grid_step/window control the flow grid and Lucas-Kanade window size"
+)
+_CAMERA_HINT = (
+    "reference and generated must be readable, identically shaped single frames "
+    "(the reference is the engine render, ground truth); needs textured content "
+    "(>= 8 trackable corners)"
+)
+_PHOTOMETRIC_HINT = (
+    "generated is a frame image; normal_map is the engine NORMAL pass (rgb-packed, "
+    "same size); optional albedo is the engine ALBEDO pass — all identically shaped"
+)
+_OCCLUSION_HINT = (
+    "generated is a frame image; depth is the engine DEPTH pass (same size, with real "
+    "discontinuities); optional reference is the engine beauty render for a sharpness baseline"
 )
 
 
@@ -137,6 +160,76 @@ class MotionConsistencyReport(SchemaBase):
     n_invalid_total: int
     residual_map_path: str
     plot_path: str | None = None
+
+
+class CameraProjectionReport(SchemaBase):
+    """verify_camera_projection: camera-projection consistency of a generated frame vs a
+    reference render (homography-driven verdict + requested epipolar residual)."""
+
+    reference: str
+    generated: str
+    height: int
+    width: int
+    n_corners: int
+    n_correspondences: int
+    median_displacement_px: float
+    max_displacement_px: float
+    homography_inlier_fraction: float
+    homography_residual_px: float
+    camera_shift_px: float
+    camera_scale: float
+    camera_rotation_deg: float
+    epipolar_inlier_fraction: float
+    mean_symmetric_epipolar_distance_px: float
+    epipolar_degenerate: bool
+    verdict: str
+    verdict_reason: str
+
+
+class PhotometricConsistencyReport(SchemaBase):
+    """analyze_photometric_consistency: Lambertian normal-vs-shading fit of a generated
+    frame against the engine normal (and optional albedo) pass."""
+
+    generated: str
+    normal_map: str
+    albedo: str | None = None
+    height: int
+    width: int
+    n_pixels: int
+    used_albedo: bool
+    photometric_r2: float
+    residual_rms: float
+    light_direction: list[float]
+    ambient: float
+    light_elevation_deg: float
+    light_azimuth_deg: float
+    albedo_shading_leak: float | None = None
+    verdict: str
+    verdict_reason: str
+
+
+class OcclusionBoundaryReport(SchemaBase):
+    """evaluate_occlusion_boundaries: generated-frame sharpness at the depth pass's
+    occlusion boundaries (+ gen/ref ratio when a reference is given)."""
+
+    generated: str
+    depth: str
+    reference: str | None = None
+    height: int
+    width: int
+    edge_percentile: float
+    band_px: int
+    edge_pixel_count: int
+    band_pixel_count: int
+    edge_fraction: float
+    boundary_sharpness: float
+    interior_sharpness: float
+    boundary_sharpness_ratio: float
+    ref_boundary_sharpness: float | None = None
+    gen_vs_ref_ratio: float | None = None
+    verdict: str
+    verdict_reason: str
+    edge_mask_path: str
 
 
 # --------------------------------------------------------------------------- #
@@ -338,6 +431,159 @@ def _verify_motion_consistency(
 
 
 # --------------------------------------------------------------------------- #
+# Tool C: verify_camera_projection (epipolar / camera gate)
+
+
+def _verify_camera_projection(
+    ctx: AppContext,
+    reference: str,
+    generated: str,
+    max_corners: int = 200,
+    window: int = 15,
+    ransac_px: float = 2.0,
+) -> str:
+    try:
+        ref = image2d.load_image_gray(reference)
+        gen = image2d.load_image_gray(generated)
+        if ref.shape != gen.shape:
+            return ToolError(
+                error=(
+                    f"frame shapes differ: {Path(reference).name} is {ref.shape}, "
+                    f"{Path(generated).name} is {gen.shape}"
+                ),
+                hint=_CAMERA_HINT,
+            ).model_dump_json()
+        res = epipolar.analyze_camera_projection(
+            ref, gen, max_corners=int(max_corners), window=int(window), ransac_px=float(ransac_px)
+        )
+        return CameraProjectionReport(
+            reference=str(reference),
+            generated=str(generated),
+            height=res.height,
+            width=res.width,
+            n_corners=res.n_corners,
+            n_correspondences=res.n_correspondences,
+            median_displacement_px=res.median_displacement_px,
+            max_displacement_px=res.max_displacement_px,
+            homography_inlier_fraction=res.homography_inlier_fraction,
+            homography_residual_px=res.homography_residual_px,
+            camera_shift_px=res.camera_shift_px,
+            camera_scale=res.camera_scale,
+            camera_rotation_deg=res.camera_rotation_deg,
+            epipolar_inlier_fraction=res.epipolar_inlier_fraction,
+            mean_symmetric_epipolar_distance_px=res.mean_symmetric_epipolar_distance_px,
+            epipolar_degenerate=res.epipolar_degenerate,
+            verdict=res.verdict,
+            verdict_reason=res.verdict_reason,
+        ).model_dump_json()
+    except Exception as exc:  # the MCP boundary must never see a raise
+        return _error(exc, _CAMERA_HINT)
+
+
+# --------------------------------------------------------------------------- #
+# Tool D: analyze_photometric_consistency (lighting gate)
+
+
+def _analyze_photometric_consistency(
+    ctx: AppContext,
+    generated: str,
+    normal_map: str,
+    albedo: str | None = None,
+    r2_ok: float = 0.5,
+) -> str:
+    try:
+        gen_lum = image2d.load_image_gray(generated)
+        normals = photometric.decode_normal_map(image2d.load_image_rgb(normal_map))
+        if normals.shape[:2] != gen_lum.shape:
+            return ToolError(
+                error=(
+                    f"shapes differ: {Path(generated).name} is {gen_lum.shape}, normal map "
+                    f"{Path(normal_map).name} is {normals.shape[:2]}"
+                ),
+                hint=_PHOTOMETRIC_HINT,
+            ).model_dump_json()
+        albedo_lum = image2d.load_image_gray(albedo) if albedo is not None else None
+        res = photometric.analyze_photometric_consistency(
+            gen_lum, normals, albedo_lum=albedo_lum, r2_ok=float(r2_ok)
+        )
+        return PhotometricConsistencyReport(
+            generated=str(generated),
+            normal_map=str(normal_map),
+            albedo=str(albedo) if albedo is not None else None,
+            height=int(gen_lum.shape[0]),
+            width=int(gen_lum.shape[1]),
+            n_pixels=res.n_pixels,
+            used_albedo=res.used_albedo,
+            photometric_r2=res.photometric_r2,
+            residual_rms=res.residual_rms,
+            light_direction=list(res.light_direction),
+            ambient=res.ambient,
+            light_elevation_deg=res.light_elevation_deg,
+            light_azimuth_deg=res.light_azimuth_deg,
+            albedo_shading_leak=res.albedo_shading_leak,
+            verdict=res.verdict,
+            verdict_reason=res.verdict_reason,
+        ).model_dump_json()
+    except Exception as exc:  # the MCP boundary must never see a raise
+        return _error(exc, _PHOTOMETRIC_HINT)
+
+
+# --------------------------------------------------------------------------- #
+# Tool E: evaluate_occlusion_boundaries (occlusion gate)
+
+
+def _evaluate_occlusion_boundaries(
+    ctx: AppContext,
+    generated: str,
+    depth: str,
+    reference: str | None = None,
+    edge_percentile: float = 95.0,
+    band_px: int = 2,
+) -> str:
+    try:
+        gen = image2d.load_image_gray(generated)
+        dep = image2d.load_image_gray(depth)
+        if dep.shape != gen.shape:
+            return ToolError(
+                error=(
+                    f"shapes differ: {Path(generated).name} is {gen.shape}, depth "
+                    f"{Path(depth).name} is {dep.shape}"
+                ),
+                hint=_OCCLUSION_HINT,
+            ).model_dump_json()
+        ref = image2d.load_image_gray(reference) if reference is not None else None
+        res = occlusion.evaluate_occlusion_boundaries(
+            gen, dep, reference=ref, percentile=float(edge_percentile), band_px=int(band_px)
+        )
+        # The band is derived from the DEPTH pass (+ percentile/band_px), not the
+        # generated frame — key the filename off depth so distinct depths don't collide.
+        mask_name = f"occlusion_band_{_safe(Path(generated).stem)}__{_safe(Path(depth).stem)}.png"
+        mask_path = image2d.save_mask_png(res.edge_band, _video_dir(ctx) / mask_name)
+        return OcclusionBoundaryReport(
+            generated=str(generated),
+            depth=str(depth),
+            reference=str(reference) if reference is not None else None,
+            height=res.height,
+            width=res.width,
+            edge_percentile=res.edge_percentile,
+            band_px=res.band_px,
+            edge_pixel_count=res.edge_pixel_count,
+            band_pixel_count=res.band_pixel_count,
+            edge_fraction=res.edge_fraction,
+            boundary_sharpness=res.boundary_sharpness,
+            interior_sharpness=res.interior_sharpness,
+            boundary_sharpness_ratio=res.boundary_sharpness_ratio,
+            ref_boundary_sharpness=res.ref_boundary_sharpness,
+            gen_vs_ref_ratio=res.gen_vs_ref_ratio,
+            verdict=res.verdict,
+            verdict_reason=res.verdict_reason,
+            edge_mask_path=str(mask_path),
+        ).model_dump_json()
+    except Exception as exc:  # the MCP boundary must never see a raise
+        return _error(exc, _OCCLUSION_HINT)
+
+
+# --------------------------------------------------------------------------- #
 # Registration
 
 
@@ -391,3 +637,71 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         n_cols) residual map is written to an npz under data/video/; save_plot writes a mean-residual
         heatmap. Returns MotionConsistencyReport JSON, or ToolError JSON on failure."""
         return _verify_motion_consistency(ctx, frames, grid_step, window, tau, max_frames, save_plot)
+
+    @mcp.tool()
+    def verify_camera_projection(
+        reference: str,
+        generated: str,
+        max_corners: int = 200,
+        window: int = 15,
+        ransac_px: float = 2.0,
+    ) -> str:
+        """CAMERA gate: does a generated frame's camera match the engine's reference render? The
+        engine renders with a strict projection matrix; a generator can imperceptibly drift focal
+        length / FOV / nodal point. Shi-Tomasi corners in the reference are tracked into the
+        generated frame by the repo's pyramidal Lucas-Kanade with a forward-backward gate, then two
+        global camera models are fit by RANSAC: a homography (the reliable metric — well-defined at
+        any baseline; its reprojection residual + image-centre shift/scale/rotation quantify the
+        drift) and a fundamental matrix (the requested epipolar model; its
+        mean_symmetric_epipolar_distance_px is reported but flagged epipolar_degenerate when there
+        is no parallax, since F is unidentifiable on a same-view pair). verdict: 'camera-consistent'
+        (correspondences near-identity — camera matches), 'camera-drift' (a single homography
+        explains a non-trivial shift — pan/zoom/FOV drift), or 'geometry-inconsistent' (no global
+        camera model fits — local warping / hallucinated geometry). reference and generated must be
+        identically shaped single frames with enough texture (>= 8 trackable corners). Deterministic
+        (fixed-seed RANSAC). Returns CameraProjectionReport JSON, or ToolError JSON on failure."""
+        return _verify_camera_projection(ctx, reference, generated, max_corners, window, ransac_px)
+
+    @mcp.tool()
+    def analyze_photometric_consistency(
+        generated: str,
+        normal_map: str,
+        albedo: str | None = None,
+        r2_ok: float = 0.5,
+    ) -> str:
+        """LIGHTING gate: does a generated frame's shading obey the engine's true surface normals?
+        Rendering forms I = R*S (albedo x shading); a generator often bakes lighting into texture,
+        producing shading that ignores the geometry. Given the engine NORMAL pass (rgb-packed,
+        decoded as N = 2*rgb-1) and optionally the ALBEDO pass, the observed shading (S = I/albedo,
+        or S = I when no albedo) is fit to the Lambertian model S ~ ambient + N.L by linear least
+        squares over all valid pixels; photometric_r2 is the verdict signal. It also recovers the
+        light_direction / elevation / azimuth (in the normal map's frame) and, with albedo, the
+        albedo_shading_leak (Pearson correlation of |grad shading| with |grad albedo| — high means
+        texture bled into shading, a failed intrinsic decomposition). verdict: 'consistent'
+        (r2 >= r2_ok — lighting obeys geometry) or 'inconsistent' (hallucinated / baked-in shading),
+        optionally with an 'albedo leak' note. This is a linear Lambertian PROXY (no cast-shadow or
+        max(0,.) clamp modeling), a consistency gate not a light solver. All inputs identically
+        shaped. Returns PhotometricConsistencyReport JSON, or ToolError JSON on failure."""
+        return _analyze_photometric_consistency(ctx, generated, normal_map, albedo, r2_ok)
+
+    @mcp.tool()
+    def evaluate_occlusion_boundaries(
+        generated: str,
+        depth: str,
+        reference: str | None = None,
+        edge_percentile: float = 95.0,
+        band_px: int = 2,
+    ) -> str:
+        """OCCLUSION gate: is a generated frame blurred where objects occlude each other? A
+        generator has no Z-buffer, so foreground/background pixels bleed at occlusion boundaries.
+        The engine DEPTH pass marks those boundaries exactly: this takes the Sobel gradient of the
+        depth pass, thresholds it at edge_percentile to an occlusion band (dilated by band_px), and
+        measures the variance of the generated frame's Laplacian (the standard sharpness proxy)
+        inside the band vs the flat interior. boundary_sharpness_ratio > 1 means edges are crisper
+        than interior (expected for real occlusions). With a reference beauty render,
+        gen_vs_ref_ratio (gen boundary sharpness over ref) is the reliable read — below ref_ok
+        means the generator softened the occlusion edges. verdict: 'sharp' or 'soft-boundaries'
+        (depth-layer bleeding). The depth pass must have real discontinuities (a flat depth is a
+        ToolError). The edge-band mask is written as an 8-bit PNG under data/video/. Returns
+        OcclusionBoundaryReport JSON, or ToolError JSON on failure."""
+        return _evaluate_occlusion_boundaries(ctx, generated, depth, reference, edge_percentile, band_px)

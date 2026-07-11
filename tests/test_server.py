@@ -15,7 +15,7 @@ import pytest
 from dsp_server.server import create_server
 from dsp_server.toolsets import AppContext, geometry
 
-# Full 44-tool inventory across the ten packs (curriculum order + rendering + video).
+# Full 47-tool inventory across the ten packs (curriculum order + rendering + video).
 EXPECTED_BY_PACK = {
     "geometry": {
         "extract_mesh_telemetry",
@@ -55,7 +55,13 @@ EXPECTED_BY_PACK = {
     "netqueue": {"queueing_calc", "little_law", "erlang_blocking"},
     "os": {"schedule_sim", "page_replacement_sim", "bankers_check"},
     "rendering": {"verify_brdf_energy"},
-    "video": {"evaluate_spatiotemporal_frequencies", "verify_motion_consistency"},
+    "video": {
+        "evaluate_spatiotemporal_frequencies",
+        "verify_motion_consistency",
+        "verify_camera_projection",
+        "analyze_photometric_consistency",
+        "evaluate_occlusion_boundaries",
+    },
 }
 EXPECTED_TOOLS = set().union(*EXPECTED_BY_PACK.values())
 
@@ -68,7 +74,7 @@ def test_all_toolsets_register_expected_tools(stub_engine_env, monkeypatch: pyte
     monkeypatch.delenv("DSP_TOOLSETS", raising=False)
     names = _tool_names(create_server())
     assert names == EXPECTED_TOOLS
-    assert len(names) == 44  # no duplicate names across packs
+    assert len(names) == 47  # no duplicate names across packs
 
 
 def test_toolsets_env_filters_packs(stub_engine_env, monkeypatch: pytest.MonkeyPatch):

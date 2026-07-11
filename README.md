@@ -18,7 +18,7 @@ MCP registration is automatic in Claude Code: the committed `.mcp.json` starts t
 
 ## Tool packs
 
-44 tools across 10 packs (the engine's own DSP lane, one pack per relevant EE course, a rendering lane
+47 tools across 10 packs (the engine's own DSP lane, one pack per relevant EE course, a rendering lane
 for the ray tracer, and a video lane for the AI-video comparison gate). Each pack registers by default;
 trim per client with the `DSP_TOOLSETS` env var (comma-separated names). General data goes in as
 `.csv/.tsv/.json/.npz/.npy` paths (column-addressed); `.ply` paths address engine dumps as
@@ -35,7 +35,7 @@ trim per client with the `DSP_TOOLSETS` env var (comma-separated names). General
 | `netqueue` | ELE412 Data Communication | `queueing_calc`, `little_law`, `erlang_blocking` |
 | `os` | Operating Systems (Tanenbaum) | `schedule_sim`, `page_replacement_sim`, `bankers_check` |
 | `rendering` | PBR / ray-tracer energy | `verify_brdf_energy` |
-| `video` | AI-video comparison gate | `evaluate_spatiotemporal_frequencies`, `verify_motion_consistency` |
+| `video` | AI-video comparison gate | `evaluate_spatiotemporal_frequencies`, `verify_motion_consistency`, `verify_camera_projection`, `analyze_photometric_consistency`, `evaluate_occlusion_boundaries` |
 
 All tools return small JSON summaries; arrays, plots, models, and images stay on disk under `data/`
 (`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`, `video/`). Preset examples:
