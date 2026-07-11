@@ -1,0 +1,15 @@
+# Local container smoke (plan M9): docker compose up, then handshake against
+# http://localhost:8000/mcp. ./data is the same telemetry directory the local
+# stdio server uses, so dumps produced on this machine are visible in-container.
+services:
+  dsp:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      # Minimum-viable auth for the HTTP transport. Empty = auth disabled (fine on
+      # localhost; NEVER expose the port publicly without a token or platform auth).
+      # Example: DSP_AUTH_TOKEN: "change-me-long-random-string"
+      DSP_AUTH_TOKEN: ""
