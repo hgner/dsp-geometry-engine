@@ -21,9 +21,11 @@ from mcp.server.fastmcp import FastMCP
 
 from cxx_bridge import engine_cli
 from dsp_server import plots
-from dsp_server.engine import filters, lbs, ply, transforms
+from dsp_server.engine import filters, lbs, ply, scoring, transforms
 from dsp_server.engine.transforms import Signal1D
 from dsp_server.schemas import (
+    BakeRefMatch,
+    BakeScoreReport,
     CorrugationReport,
     DisplacementStats,
     LbsDifferentialReport,
@@ -498,12 +500,61 @@ def _lbs_differential(
         return _error(exc, hint=_histogram_hint(loaded, bone_map))
 
 
+def _score_bake(
+    ctx: AppContext,
+    bake_dir: str,
+    reference_glob: str,
+    frame: int = 8,
+    person: str = "p1",
+    iou_target: float = scoring.IOU_TARGET,
+    hu_target: float = scoring.HU_TARGET,
+) -> str:
+    try:
+        base = Path(bake_dir)
+        depth = base / "depth" / f"frame_{int(frame):05d}.png"
+        mask = base / "mask" / f"frame_{int(frame):05d}_{person}.png"
+        result = scoring.score_bake(
+            depth,
+            mask,
+            reference_glob,
+            iou_target=iou_target,
+            hu_target=hu_target,
+        )
+        return BakeScoreReport(
+            bake_depth=result.bake_depth,
+            bake_mask=result.bake_mask,
+            n_refs=result.n_refs,
+            iou_best=result.iou_best,
+            iou_mean=result.iou_mean,
+            hu_best=result.hu_best,
+            hu_mean=result.hu_mean,
+            edge_corr_best=result.edge_corr_best,
+            edge_corr_mean=result.edge_corr_mean,
+            corrugation_db=result.corrugation_db,
+            corrugation_freq_cpp=result.corrugation_freq_cpp,
+            corrugation_orientation_deg=result.corrugation_orientation_deg,
+            pose_ok=result.pose_ok,
+            mesh_ok=result.mesh_ok,
+            verdict=result.verdict,
+            top_matches=[
+                BakeRefMatch(ref=m.ref, iou=m.iou, hu=m.hu, edge_corr=m.edge_corr)
+                for m in result.top_matches
+            ],
+        ).model_dump_json()
+    except Exception as exc:
+        return _error(
+            exc,
+            hint="expects an engine bake dir with depth/frame_<n>.png + mask/frame_<n>_<person>.png; "
+            "the other solo-mask person is blank — pass person=p0 if p1 is empty",
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Registration
 
 
 def register(mcp: FastMCP, ctx: AppContext) -> None:
-    """Register the five geometry tools on ``mcp``, bound to ``ctx``."""
+    """Register the geometry tools on ``mcp``, bound to ``ctx``."""
 
     @mcp.tool()
     def extract_mesh_telemetry(
@@ -605,3 +656,26 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         {none, top1, drop_hand, drop_fingers} runs a Mode-B experiment on the weights before
         posing."""
         return _lbs_differential(ctx, dump, palette, baked_json, joint, weight_surgery, bone_map_path)
+
+    @mcp.tool()
+    def score_bake(
+        bake_dir: str,
+        reference_glob: str,
+        frame: int = 8,
+        person: str = "p1",
+        iou_target: float = scoring.IOU_TARGET,
+        hu_target: float = scoring.HU_TARGET,
+    ) -> str:
+        """Score one posed engine bake against a library reference pack — the loop's
+        inner metric. Reads the bake's depth/frame_<frame>.png and mask/frame_<frame>_<person>.png
+        (solo bakes raster one body; pass person='p0' if 'p1' is the blank one) and every
+        *_depth.png matched by reference_glob. POSE lane (the reliable gate): silhouette IoU +
+        Hu-moment shape distance (matchShapes-I2, lower is closer) + Sobel edge-orientation
+        correlation, each facing-normalized as best-of-mirror against every reference, reported
+        as best/mean plus the top matching refs. MESH lane (ADVISORY): band-limited 2-D FFT
+        prominence (dB) of the bake depth over the body ROI — a coarse render-side corrugation
+        proxy that does NOT resolve the ~8 mm edge-loop ripple (use analyze_corrugation on the
+        vertex dump for that). verdict is pose-driven ('pass' when iou_best>=iou_target and
+        hu_best<=hu_target, else 'pose-weak'), with a trailing '*' when advisory mesh corrugation
+        is high. Returns BakeScoreReport JSON, or ToolError JSON on failure."""
+        return _score_bake(ctx, bake_dir, reference_glob, frame, person, iou_target, hu_target)

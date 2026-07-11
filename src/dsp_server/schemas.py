@@ -222,3 +222,37 @@ class ImageComparisonReport(_SchemaBase):
     rms: float | None = None
     ssim: float | None = None
     plot_path: str | None = None
+
+
+class BakeRefMatch(_SchemaBase):
+    """One reference the bake was scored against (best-of-mirror silhouette)."""
+
+    ref: str
+    iou: float
+    hu: float
+    edge_corr: float
+
+
+class BakeScoreReport(_SchemaBase):
+    """score_bake: one posed bake vs a reference pack. POSE lane (silhouette IoU +
+    Hu shape distance + edge-orientation) is the reliable gate; MESH lane
+    (depth-FFT corrugation dB) is ADVISORY — the authoritative ripple measure is
+    analyze_corrugation on the vertex dump. verdict is pose-driven ('pass' /
+    'pose-weak'), with a trailing '*' when the advisory mesh corrugation is high."""
+
+    bake_depth: str
+    bake_mask: str
+    n_refs: int
+    iou_best: float
+    iou_mean: float
+    hu_best: float
+    hu_mean: float
+    edge_corr_best: float
+    edge_corr_mean: float
+    corrugation_db: float
+    corrugation_freq_cpp: float
+    corrugation_orientation_deg: float
+    pose_ok: bool
+    mesh_ok: bool
+    verdict: str
+    top_matches: list[BakeRefMatch]

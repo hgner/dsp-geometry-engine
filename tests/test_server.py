@@ -15,7 +15,7 @@ import pytest
 from dsp_server.server import create_server
 from dsp_server.toolsets import AppContext, geometry
 
-# Full 36-tool inventory across the eight packs (curriculum order).
+# Full 37-tool inventory across the eight packs (curriculum order).
 EXPECTED_BY_PACK = {
     "geometry": {
         "extract_mesh_telemetry",
@@ -23,6 +23,7 @@ EXPECTED_BY_PACK = {
         "compare_geometry_signals",
         "localize_defect",
         "lbs_differential",
+        "score_bake",
     },
     "imaging": {"compare_depth_renders", "enhance_image", "filter_image", "segment_image", "restore_image"},
     "stats": {"describe", "fit_distribution", "hypothesis_test", "regression_fit", "compare_dump_ripples"},
@@ -49,7 +50,7 @@ def test_all_toolsets_register_expected_tools(stub_engine_env, monkeypatch: pyte
     monkeypatch.delenv("DSP_TOOLSETS", raising=False)
     names = _tool_names(create_server())
     assert names == EXPECTED_TOOLS
-    assert len(names) == 36  # no duplicate names across packs
+    assert len(names) == 37  # no duplicate names across packs
 
 
 def test_toolsets_env_filters_packs(stub_engine_env, monkeypatch: pytest.MonkeyPatch):
