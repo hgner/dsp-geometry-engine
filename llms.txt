@@ -111,9 +111,20 @@
     pass-continuation scan). Deterministic textbook simulators — same input, same output.
 
 19. rendering pack (PBR / ray-tracer energy): `verify_brdf_energy` — white-furnace hemisphere
-    integral of a BRDF (lambertian or GGX Cook-Torrance). rho(wo) > 1 = energy LEAK (fireflies /
-    exposure blowout); rho << 1 at high roughness = single-scatter LOSS (darkening). A DESIGN
-    calculator — point it at the engine's ACTUAL shader model (roughness/f0/NDF) to match shipped HLSL;
-    the engine's own C++ furnace tests remain ground truth. Also in geometry: `analyze_mesh_topology`
-    (connected components / watertightness / non-manifold edges / valence / Euler / geodesic — whole-mesh
-    QA, complementing the per-joint `analyze_corrugation`).
+    integral of a BRDF (lambertian or GGX Cook-Torrance, via NDF importance sampling so it stays
+    correct at low roughness). rho(wo) > 1 = energy LEAK (fireflies / exposure blowout); rho << 1 at
+    high roughness = single-scatter LOSS (darkening). A DESIGN calculator — point it at the engine's
+    ACTUAL shader model (roughness/f0/NDF) to match shipped HLSL; the engine's own C++ furnace tests
+    remain ground truth. Also in geometry: `analyze_mesh_topology` (connected components / watertightness
+    / non-manifold edges / valence / Euler / geodesic — whole-mesh QA, complementing per-joint
+    `analyze_corrugation`).
+
+20. video pack (AI-video comparison gate; frames = a directory or path list of images):
+    `evaluate_spatiotemporal_frequencies` (3-D FFT over the T axis — high temporal-frequency energy =
+    flicker/boil; gen-vs-ref delta) and `verify_motion_consistency` (bidirectional Lucas-Kanade
+    forward-backward residual ||f + b(p+f)|| — a deterministic hallucination map where motion disobeys
+    geometry; pure-scipy flow, not calibrated OpenCV). The SPATIAL half of the gate is
+    `compare_wavelet_signatures` (imaging pack): per-scale wavelet band-energy parity — macro geometry
+    vs micro texture, so "Scale-4 macro 99% / Scale-1 micro -40%" localizes generator smoothing.
+    The comparison gate spans packs: `score_bake` (silhouette/shape) + `compare_wavelet_signatures`
+    (spatial detail) + the video pack (temporal). See docs/ENGINE-PLAYBOOK.md.

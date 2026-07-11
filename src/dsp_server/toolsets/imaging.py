@@ -21,7 +21,7 @@ import numpy as np
 from mcp.server.fastmcp import FastMCP
 
 from dsp_server import plots
-from dsp_server.engine import image2d
+from dsp_server.engine import image2d, wavelets
 from dsp_server.schemas import ImageComparisonReport, SchemaBase, Spectrum2DSchema, ToolError
 from dsp_server.toolsets import AppContext
 
@@ -69,6 +69,11 @@ _IMG_HINT = (
     "image must be a readable single-channel (grayscale/depth) image on disk; "
     "processed outputs are 16-bit grayscale PNGs under data/images/ and are valid "
     "inputs to every imaging tool"
+)
+
+_WAVELET_HINT = (
+    "both images must be readable single-channel images of identical shape; wavelet "
+    "must be a pywt discrete wavelet (db1..db20, sym2..sym20, coif1..coif5, haar)"
 )
 
 
@@ -187,6 +192,24 @@ class RestorationReport(SchemaBase):
     sharpness_after: float
     rms_change: float
     ssim_vs_input: float
+
+
+class WaveletComparisonReport(SchemaBase):
+    """compare_wavelet_signatures: per-scale wavelet detail-energy parity (gen/ref)."""
+
+    wavelet: str
+    n_levels: int
+    image_ref: str
+    image_gen: str
+    height: int
+    width: int
+    approx_parity: float
+    detail_parity_by_scale: list[float]  # finest-first: index 0 = level 1 (finest band)
+    macro_parity: float
+    micro_parity: float
+    worst_scale: int  # 1-indexed level with the largest relative energy loss
+    interpretation: str
+    plot_path: str | None = None
 
 
 def _hist_schema(stats: image2d.HistStats) -> HistStatsSchema:
@@ -551,6 +574,93 @@ def _compare_depth_renders(
         return ToolError(error=f"{type(exc).__name__}: {exc}", hint=_ROI_HINT).model_dump_json()
 
 
+# --------------------------------------------------------------------------- #
+# Tool: compare_wavelet_signatures (ELE490 multiresolution lane)
+
+
+def _save_wavelet_bar(
+    ref_energy: list[float],
+    gen_energy: list[float],
+    path: Path,
+    title: str,
+) -> Path:
+    """Grouped bar chart of per-scale detail energy, reference vs generated (level 1
+    = finest, on the left). Lives here, not in the frozen plots.py (which locked the
+    Agg backend before pyplot was imported)."""
+    plt = plots.plt
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ref = np.asarray(ref_energy, dtype=np.float64)
+    gen = np.asarray(gen_energy, dtype=np.float64)
+    levels = np.arange(1, ref.size + 1)
+    width = 0.4
+    fig, ax = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
+    ax.bar(levels - width / 2.0, ref, width, color="tab:blue", label="reference")
+    ax.bar(levels + width / 2.0, gen, width, color="tab:orange", label="generated")
+    if np.all(np.concatenate([ref, gen]) > 0.0):
+        ax.set_yscale("log")  # per-scale energies span orders of magnitude
+    ax.set_xlabel("wavelet scale (level; 1 = finest detail)")
+    ax.set_ylabel("detail band energy")
+    ax.set_xticks(levels)
+    ax.grid(True, alpha=0.3, axis="y")
+    ax.legend(loc="best", fontsize=8)
+    fig.suptitle(title)
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+    return path
+
+
+def _compare_wavelet_signatures(
+    ctx: AppContext,
+    image_ref: str,
+    image_gen: str,
+    wavelet: str = "db2",
+    levels: int = 4,
+    save_plot: bool = False,
+) -> str:
+    try:
+        ref_img = image2d.load_image_gray(image_ref)
+        gen_img = image2d.load_image_gray(image_gen)
+        if ref_img.shape != gen_img.shape:
+            return ToolError(
+                error=(
+                    f"image shapes differ: {Path(image_ref).name} is {ref_img.shape}, "
+                    f"{Path(image_gen).name} is {gen_img.shape}"
+                ),
+                hint="compare_wavelet_signatures needs identically shaped images (crop/resize first)",
+            ).model_dump_json()
+        cmp = wavelets.compare_wavelets(
+            ref_img, gen_img, wavelet=wavelet, levels=int(levels) if levels else None
+        )
+        plot_path: str | None = None
+        if save_plot:
+            name = f"wavelet_{_safe(Path(image_ref).stem)}_vs_{_safe(Path(image_gen).stem)}.png"
+            plot_path = str(
+                _save_wavelet_bar(
+                    cmp.ref.detail_energy_by_scale,
+                    cmp.gen.detail_energy_by_scale,
+                    ctx.plots_dir / name,
+                    f"{Path(image_ref).name} vs {Path(image_gen).name}: {cmp.wavelet}",
+                )
+            )
+        return WaveletComparisonReport(
+            wavelet=cmp.wavelet,
+            n_levels=cmp.n_levels,
+            image_ref=str(image_ref),
+            image_gen=str(image_gen),
+            height=int(ref_img.shape[0]),
+            width=int(ref_img.shape[1]),
+            approx_parity=cmp.approx_parity,
+            detail_parity_by_scale=list(cmp.detail_parity_by_scale),
+            macro_parity=cmp.macro_parity,
+            micro_parity=cmp.micro_parity,
+            worst_scale=cmp.worst_scale,
+            interpretation=cmp.interpretation,
+            plot_path=plot_path,
+        ).model_dump_json()
+    except Exception as exc:  # the MCP boundary must never see a raise
+        return _error(exc, _WAVELET_HINT)
+
+
 def register(mcp: FastMCP, ctx: AppContext) -> None:
     """Register the imaging tools on ``mcp``, bound to ``ctx``."""
 
@@ -680,3 +790,32 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         (variance of the Laplacian) so the caller can see whether restoration helped. Returns
         RestorationReport JSON, or ToolError JSON on failure."""
         return _restore_image(ctx, image, mode, kernel_size, noise_power, psf_sigma, nsr, n_iter, out_label)
+
+    @mcp.tool()
+    def compare_wavelet_signatures(
+        image_ref: str,
+        image_gen: str,
+        wavelet: str = "db2",
+        levels: int = 4,
+        save_plot: bool = False,
+    ) -> str:
+        """Multiresolution spatial-texture-loss gate: 2-D discrete wavelet decomposition
+        (PyWavelets) of a reference and a generated depth/AOV image, comparing per-scale
+        detail-band ENERGY so the caller learns WHAT was lost — macro geometry (coarse
+        scales) vs micro texture (fine scales) — which a single MSE/SSIM number cannot.
+        Complements compare_depth_renders, which does a single-scale 2-D FFT (dominant
+        spatial frequency/orientation) plus SSIM; this instead splits the image into an
+        octave pyramid and reports the gen/ref energy PARITY (1.0 = preserved, <1 = lost)
+        band by band. Both images must be identical shape (a ToolError names both shapes
+        otherwise). wavelet is a pywt discrete wavelet (db2 default); levels sets the
+        pyramid depth (clamped down to the image's maximum useful level). Returns
+        WaveletComparisonReport JSON: approx_parity, a finest-first detail_parity_by_scale
+        list (index 0 = level 1, the finest band), macro_parity (coarsest level),
+        micro_parity (finest level), worst_scale (1-indexed level with the largest relative
+        energy loss), and an interpretation string. Example: 'Scale-4 macro parity 99%,
+        Scale-1 micro -40%' => the generator is smoothing high-frequency detail, reported as
+        'micro-texture loss / smoothing'; a low coarse-scale parity reads 'structural
+        mismatch'; all bands near 1.0 read 'parity'. save_plot writes a grouped per-scale
+        energy bar chart (reference vs generated) under data/plots/ and returns its path.
+        Returns ToolError JSON on failure."""
+        return _compare_wavelet_signatures(ctx, image_ref, image_gen, wavelet, levels, save_plot)

@@ -18,15 +18,16 @@ MCP registration is automatic in Claude Code: the committed `.mcp.json` starts t
 
 ## Tool packs
 
-41 tools across 9 packs (the engine's own DSP lane, one pack per relevant EE course, plus a rendering
-lane for the ray tracer). Each pack registers by default; trim per client with the `DSP_TOOLSETS` env
-var (comma-separated names). General data goes in as `.csv/.tsv/.json/.npz/.npy` paths (column-addressed);
-`.ply` paths address engine dumps as `column="<joint>[:posed|rest]"`.
+44 tools across 10 packs (the engine's own DSP lane, one pack per relevant EE course, a rendering lane
+for the ray tracer, and a video lane for the AI-video comparison gate). Each pack registers by default;
+trim per client with the `DSP_TOOLSETS` env var (comma-separated names). General data goes in as
+`.csv/.tsv/.json/.npz/.npy` paths (column-addressed); `.ply` paths address engine dumps as
+`column="<joint>[:posed|rest]"`; video tools take a directory or list of frame images.
 
 | Pack (`DSP_TOOLSETS` name) | Course / lane | Tools |
 | --- | --- | --- |
 | `geometry` | ELE407 DSP + mesh QA | `extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`, `lbs_differential`, `score_bake`, `analyze_mesh_topology` |
-| `imaging` | ELE490 Image Processing | `compare_depth_renders`, `enhance_image`, `filter_image`, `segment_image`, `restore_image` |
+| `imaging` | ELE490 Image Processing | `compare_depth_renders`, `enhance_image`, `filter_image`, `segment_image`, `restore_image`, `compare_wavelet_signatures` |
 | `stats` | ELE320 Probability & Statistics | `describe`, `fit_distribution`, `hypothesis_test`, `regression_fit`, `compare_dump_ripples` |
 | `engmath` | MAT235/236 Engineering Math | `solve_ode`, `laplace_transform`, `linear_algebra`, `residues_and_integrals`, `fourier_series` |
 | `systems` | ELE301 Signals & Systems + control | `lti_response`, `pole_zero`, `bode`, `sampling_check`, `convolve_signals`, `group_delay`, `state_space_analysis` |
@@ -34,11 +35,13 @@ var (comma-separated names). General data goes in as `.csv/.tsv/.json/.npz/.npy`
 | `netqueue` | ELE412 Data Communication | `queueing_calc`, `little_law`, `erlang_blocking` |
 | `os` | Operating Systems (Tanenbaum) | `schedule_sim`, `page_replacement_sim`, `bankers_check` |
 | `rendering` | PBR / ray-tracer energy | `verify_brdf_energy` |
+| `video` | AI-video comparison gate | `evaluate_spatiotemporal_frequencies`, `verify_motion_consistency` |
 
 All tools return small JSON summaries; arrays, plots, models, and images stay on disk under `data/`
-(`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`). Preset examples:
+(`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`, `video/`). Preset examples:
 `DSP_TOOLSETS=geometry,imaging,stats` for a corrugation-RCA session; `DSP_TOOLSETS=engmath,systems,stats`
-for coursework-style calculation; `DSP_TOOLSETS=geometry,rendering` for engine mesh + shader QA.
+for coursework-style calculation; `DSP_TOOLSETS=geometry,rendering` for engine mesh + shader QA;
+`DSP_TOOLSETS=video,imaging,geometry` for the AI-video generation comparison gate.
 
 ## Docs
 

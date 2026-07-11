@@ -35,6 +35,9 @@ session) so the model isn't choosing among 41 tools when 8 are relevant.
 | Tearing / sliding / lag during animation | `group_delay` (cross-spectrum mode) | systems |
 | Fireflies, blown-out exposure, too-bright material | `verify_brdf_energy` | rendering |
 | Corrugation seen only in depth renders, not verts | `compare_depth_renders`, `segment_image` | imaging |
+| Generated video shimmers / boils frame-to-frame | `evaluate_spatiotemporal_frequencies` | video |
+| Generated video: surfaces melt / drift / hallucinate | `verify_motion_consistency` | video |
+| Generated frame looks soft / lost texture detail | `compare_wavelet_signatures` | imaging |
 | A feedback/physics loop won't reach a target state | `state_space_analysis` | systems |
 | Filter/controller stability, resonance, margins | `pole_zero`, `bode`, `lti_response` | systems |
 | Aliasing after a resample / sampling-rate choice | `sampling_check` | systems |
@@ -111,6 +114,35 @@ gate. Use this to catch an energy leak in a *proposed* BRDF before it's baked in
 That's the render-space escalation path. `compare_depth_renders(image_a, image_b)` does a 2-D spectral +
 SSIM comparison of depth/AOV PNGs; `segment_image` (imaging) with morphology gives you a connected-
 component defect mask on the render; `filter_image`/`enhance_image` isolate the band.
+
+---
+
+## 3b. The AI-video comparison gate (generated clip vs reference)
+
+VLMs are bad at watching a clip and telling temporal flicker from spatial blur. This gate answers it
+mathematically, and it spans three packs — reach for the one that matches the artifact:
+
+- **Structure/silhouette wrong** (limb shape, pose, framing) → `score_bake` (geometry): silhouette IoU +
+  Hu-moment shape distance + edge orientation against a reference pack. The reliable "is the *shape*
+  right" gate.
+- **Spatial texture/detail loss** (looks soft, over-smoothed) → `compare_wavelet_signatures` (imaging):
+  multiresolution band-energy parity, ref vs generated. Red flag: `micro_parity` (finest scale) far
+  below `macro_parity` (coarsest) → the generator is smoothing high-frequency detail. This is single-
+  frame; run it on a representative frame pair. (For a single-scale spectral+SSIM read, use
+  `compare_depth_renders` instead; wavelets add the *per-scale* breakdown.)
+- **Temporal flicker / texture boil** (shimmers frame to frame) → `evaluate_spatiotemporal_frequencies`
+  (video): 3-D FFT over the time axis of a frame directory (+ optional reference). Red flag: high
+  `temporal_hf_energy_fraction` / `dominant_temporal_freq_cpf` near 0.5 (Nyquist) / `flicker` verdict —
+  energy that a per-frame metric can't see because each frame looks fine in isolation.
+- **Surfaces melt / drift / hallucinated motion** → `verify_motion_consistency` (video): bidirectional
+  Lucas-Kanade forward-backward residual `‖f + b(p+f)‖`. Red flag: elevated `inconsistent_fraction` and
+  an `invalid_points` cluster — a deterministic hallucination map pinpointing which frame and region
+  broke geometry. (Pure-scipy flow, honest about being less robust than OpenCV; the *consistency* signal
+  is what matters, not calibrated flow.)
+
+Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry` and calls
+these over MCP against its generated-vs-reference frames — this server is the measurement product, the
+pipeline is the client.
 
 ---
 

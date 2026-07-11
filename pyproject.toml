@@ -17,6 +17,7 @@ dependencies = [
     "sympy>=1.14.0",
     "scikit-learn>=1.9.0",
     "joblib>=1.4",
+    "pywavelets>=1.9.0",
 ]
 
 [project.scripts]
