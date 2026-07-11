@@ -148,7 +148,10 @@ def _load_json(path: Path) -> tuple[dict[str, np.ndarray], dict[str, list]]:
             raise TabularError(f"matrix rows have unequal lengths: {sorted(widths)}")
         width = widths.pop()
         _check_cells(len(payload), width)
-        mat = np.asarray(payload, dtype=np.float64)
+        try:
+            mat = np.asarray(payload, dtype=np.float64)
+        except (ValueError, TypeError) as exc:
+            raise TabularError(f"matrix has a non-numeric cell: {exc}") from exc
         numeric = {f"col{i}": np.ascontiguousarray(mat[:, i]) for i in range(width)}
     elif isinstance(payload, list) and payload and all(isinstance(v, dict) for v in payload):
         keys: list[str] = []
@@ -384,14 +387,13 @@ def load_series(
             else:
                 picked, arr = _npz_pick(z, key)
                 if arr.ndim == 2:
-                    if column is None:
+                    is_index = isinstance(column, int) or (isinstance(column, str) and column.isdigit())
+                    if not is_index:  # check BEFORE int(column) so a name gives the friendly error
                         raise TabularError(
                             f"array has shape {arr.shape} — pass column= an index 0..{arr.shape[1] - 1}"
                         )
-                    idx = int(column) if not isinstance(column, int) else column
-                    if not (isinstance(column, int) or str(column).isdigit()) or not (
-                        0 <= idx < arr.shape[1]
-                    ):
+                    idx = int(column)
+                    if not 0 <= idx < arr.shape[1]:
                         raise TabularError(
                             f"array has shape {arr.shape} — pass column= an index 0..{arr.shape[1] - 1}"
                         )

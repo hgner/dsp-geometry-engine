@@ -205,6 +205,20 @@ def _is_float(token: str) -> bool:
         return False
 
 
+def _drop_all_nan_columns(x: np.ndarray, names: list[str]) -> tuple[np.ndarray, list[str]]:
+    """Drop feature columns that are entirely non-finite — these are the string
+    columns tabular.load_matrix NaN-ifies (e.g. an unselected 'label' column in a
+    labeled CSV). Without this, the all-NaN column would make the per-row finite
+    filter reject every row. Mirrors classify_eval's column handling."""
+    if x.size == 0:
+        return x, names
+    keep_cols = np.isfinite(x).any(axis=0)
+    if keep_cols.all():
+        return x, names
+    kept_names = [n for n, k in zip(names, keep_cols, strict=True) if k]
+    return x[:, keep_cols], kept_names
+
+
 def _match_name(names: list[str], column: str | int) -> str | None:
     """Resolve a column reference against a name list: exact, then unique
     case-insensitive, then integer index. None when nothing matches."""
@@ -414,6 +428,12 @@ def _cluster(
                 hint=f"expected one of {list(mlkit.CLUSTER_ALGORITHMS)}",
             ).model_dump_json()
         x, names = tabular.load_matrix(src, columns=columns, key=key, cache_dir=ctx.cache_dir)
+        x, names = _drop_all_nan_columns(x, names)  # exclude non-numeric columns (e.g. a label col)
+        if x.shape[1] == 0:
+            return ToolError(
+                error=f"no numeric feature columns in {src.name}",
+                hint=f"columns found: {tabular.columns_of(src, key=key)}",
+            ).model_dump_json()
         keep = np.isfinite(x).all(axis=1)
         x = x[keep]
         if x.shape[0] < 3:
@@ -505,6 +525,8 @@ def _reduce_dims(
             if match is not None:  # never let the label leak into the feature matrix
                 x = np.delete(x, names.index(match), axis=1)
                 names = [n for n in names if n != match]
+        # Drop any remaining non-numeric (all-NaN) columns so they don't reject every row.
+        x, names = _drop_all_nan_columns(x, names)
         if x.shape[1] == 0:
             return ToolError(
                 error=f"no feature columns left in {src.name} after excluding '{label_column}'",

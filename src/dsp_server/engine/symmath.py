@@ -104,6 +104,10 @@ _GLOBAL_DICT: dict[str, object] = {
     "__builtins__": {},
 }
 
+# The evaluate=False parse (DoS pre-check) emits functional form — Pow/Mul/Add must
+# resolve. Harmless expression constructors; __builtins__ stays empty either way.
+_GLOBAL_DICT_NOEVAL: dict[str, object] = {**_GLOBAL_DICT, "Add": sp.Add, "Mul": sp.Mul, "Pow": sp.Pow}
+
 _CHAR_RE = re.compile(r"^[0-9A-Za-z_+\-*/^().,\s<>\[\]]*$")
 _CHAR_RE_PRIMES = re.compile(r"^[0-9A-Za-z_+\-*/^().,\s<>\[\]'=]*$")
 _ATTR_DOT_RE = re.compile(r"\.(?![0-9])")
@@ -169,6 +173,29 @@ def _gate_text(text: str, allow_primes: bool = False) -> str:
     return normalized
 
 
+def _reject_huge_powers(expr: sp.Basic) -> None:
+    """Reject any Pow with a purely-numeric exponent of magnitude > MAX_EXPONENT.
+
+    The textual ``_gate_powers`` bounds bare exponents but a *parenthesized*
+    exponent (``2**(900*900*900)``, ``2**(999999*999999)``) slips past it; if it
+    reached an evaluating parse the base power would materialize a multi-gigabyte
+    bignum and hang the process. This runs on the ``evaluate=False`` parse, so the
+    exponent product (bounded literals, no nested ``**``) is cheap to ``doit`` and
+    the base is never raised.
+    """
+    for pw in expr.atoms(sp.Pow):
+        exponent = pw.exp
+        if exponent.free_symbols:
+            continue  # symbolic exponent never auto-evaluates to a bignum
+        try:
+            value = exponent.doit()
+            magnitude = abs(float(value)) if value.is_number else 0.0
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if magnitude > MAX_EXPONENT:
+            raise ExpressionError(f"power exponent {value} exceeds the limit of {MAX_EXPONENT}")
+
+
 def parse_expr_safe(
     text: str,
     symbols: Sequence[str] = (),
@@ -183,13 +210,18 @@ def parse_expr_safe(
         local_dict[name] = sp.Symbol(name)
     if extra_locals:
         local_dict.update(extra_locals)
+    parse_kwargs = {
+        "local_dict": local_dict,
+        "global_dict": _GLOBAL_DICT,
+        "transformations": standard_transformations,
+    }
     try:
-        expr = parse_expr(
-            normalized,
-            local_dict=local_dict,
-            global_dict=_GLOBAL_DICT,
-            transformations=standard_transformations,
-        )
+        # First parse WITHOUT evaluation so no bignum base power is materialized,
+        # then reject oversized numeric exponents before the real evaluating parse.
+        noeval_kwargs = {**parse_kwargs, "global_dict": _GLOBAL_DICT_NOEVAL}
+        unevaluated = parse_expr(normalized, evaluate=False, **noeval_kwargs)
+        _reject_huge_powers(unevaluated)
+        expr = parse_expr(normalized, **parse_kwargs)
     except ExpressionError:
         raise
     except Exception as exc:
@@ -495,8 +527,19 @@ def real_line_integral_by_residues(expr: sp.Expr, x: sp.Symbol) -> IntegralData:
     a_val = 0.0 if a is None else float(sp.re(a).evalf())
     if kind is not None and a_val == 0.0:
         raise ExpressionError("oscillatory factor must have a nonzero frequency a")
-    upper = kind is None or a_val > 0.0
-    g = rational if kind is None else rational * sp.exp(sp.I * abs(a_val) * x)
+    if kind in ("cos", "sin"):
+        # cos/sin are even/odd in a: close the UHP with exp(+i|a|x); the sin sign
+        # correction below restores the odd symmetry. abs() is valid ONLY here.
+        upper = True
+        g = rational * sp.exp(sp.I * abs(a_val) * x)
+    elif kind == "exp":
+        # A bare complex exponential exp(i*a*x) decays in the UHP iff a > 0, in the
+        # LHP iff a < 0 — the closing exponential must keep a's true sign.
+        upper = a_val > 0.0
+        g = rational * sp.exp(sp.I * a_val * x)
+    else:  # pure rational integrand
+        upper = True
+        g = rational
     used: list[PoleData] = []
     total = sp.S.Zero
     for p in pole_list:

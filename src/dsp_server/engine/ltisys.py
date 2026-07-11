@@ -322,7 +322,10 @@ def step_metrics(t: np.ndarray, y: np.ndarray) -> StepMetrics:
         frac = (e0 - 0.02) / max(e0 - e1, _TINY)
         settle = float(t[i] + frac * (t[i + 1] - t[i]))
     overshoot = max((float(np.max(yn)) - 1.0) * 100.0, 0.0)
-    peak_time = float(t[int(np.argmax(yn))])
+    # peak_time is only meaningful when the response actually overshoots; for a
+    # monotonic (overdamped/first-order) rise argmax is just the window end, which
+    # is window-dependent, not a system property — report None instead.
+    peak_time = float(t[int(np.argmax(yn))]) if float(np.max(yn)) > 1.0 + 1e-6 else None
     return StepMetrics(final, rise, settle, overshoot, peak_time)
 
 
