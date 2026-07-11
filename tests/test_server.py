@@ -15,30 +15,48 @@ import pytest
 from dsp_server.server import create_server
 from dsp_server.toolsets import AppContext, geometry
 
-EXPECTED_TOOLS = {
-    "extract_mesh_telemetry",
-    "analyze_corrugation",
-    "compare_geometry_signals",
-    "localize_defect",
-    "lbs_differential",
-    "compare_depth_renders",
+# Full 36-tool inventory across the eight packs (curriculum order).
+EXPECTED_BY_PACK = {
+    "geometry": {
+        "extract_mesh_telemetry",
+        "analyze_corrugation",
+        "compare_geometry_signals",
+        "localize_defect",
+        "lbs_differential",
+    },
+    "imaging": {"compare_depth_renders", "enhance_image", "filter_image", "segment_image", "restore_image"},
+    "stats": {"describe", "fit_distribution", "hypothesis_test", "regression_fit", "compare_dump_ripples"},
+    "engmath": {
+        "solve_ode",
+        "laplace_transform",
+        "linear_algebra",
+        "residues_and_integrals",
+        "fourier_series",
+    },
+    "systems": {"lti_response", "pole_zero", "bode", "sampling_check", "convolve_signals"},
+    "ml": {"feature_engineer_dump", "cluster", "reduce_dims", "classify_eval", "predict"},
+    "netqueue": {"queueing_calc", "little_law", "erlang_blocking"},
+    "os": {"schedule_sim", "page_replacement_sim", "bankers_check"},
 }
+EXPECTED_TOOLS = set().union(*EXPECTED_BY_PACK.values())
 
 
 def _tool_names(mcp) -> set[str]:
     return {tool.name for tool in asyncio.run(mcp.list_tools())}
 
 
-def test_all_toolsets_register_six_tools(stub_engine_env, monkeypatch: pytest.MonkeyPatch):
+def test_all_toolsets_register_expected_tools(stub_engine_env, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("DSP_TOOLSETS", raising=False)
-    assert _tool_names(create_server()) == EXPECTED_TOOLS
+    names = _tool_names(create_server())
+    assert names == EXPECTED_TOOLS
+    assert len(names) == 36  # no duplicate names across packs
 
 
 def test_toolsets_env_filters_packs(stub_engine_env, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DSP_TOOLSETS", "imaging")
-    names = _tool_names(create_server())
-    assert names == {"compare_depth_renders"}
-    assert len(names) == 1
+    assert _tool_names(create_server()) == EXPECTED_BY_PACK["imaging"]
+    monkeypatch.setenv("DSP_TOOLSETS", "netqueue,os")
+    assert _tool_names(create_server()) == EXPECTED_BY_PACK["netqueue"] | EXPECTED_BY_PACK["os"]
 
 
 def test_geometry_pipeline_against_stub(stub_engine_env):

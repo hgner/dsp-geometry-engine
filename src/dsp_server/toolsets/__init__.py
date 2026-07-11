@@ -56,7 +56,50 @@ def _register_imaging(mcp: FastMCP, ctx: AppContext) -> None:
     imaging.register(mcp, ctx)
 
 
+def _register_stats(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import stats
+
+    stats.register(mcp, ctx)
+
+
+def _register_engmath(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import engmath
+
+    engmath.register(mcp, ctx)
+
+
+def _register_systems(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import systems
+
+    systems.register(mcp, ctx)
+
+
+def _register_ml(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import ml
+
+    ml.register(mcp, ctx)
+
+
+def _register_netqueue(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import netqueue
+
+    netqueue.register(mcp, ctx)
+
+
+def _register_os(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import os_sim  # module named os_sim: never shadow stdlib os
+
+    os_sim.register(mcp, ctx)
+
+
+# Course packs in curriculum order (llms.txt rules 12-18 mirror this order).
 TOOLSETS: dict[str, Callable[[FastMCP, AppContext], None]] = {
     "geometry": _register_geometry,
     "imaging": _register_imaging,
+    "stats": _register_stats,
+    "engmath": _register_engmath,
+    "systems": _register_systems,
+    "ml": _register_ml,
+    "netqueue": _register_netqueue,
+    "os": _register_os,
 }
