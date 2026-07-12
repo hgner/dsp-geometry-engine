@@ -1,0 +1,13 @@
+[mcp_servers.dsp-geometry-engine]
+command = "uv"
+args = [
+    "--directory",
+    "C:/Users/hgner/hakantest/proje10",
+    "run",
+    "dsp-server",
+]
+
+[mcp_servers.dsp-geometry-engine.env]
+MPLBACKEND = "Agg"
+DSP_ENGINE_ROOT = "C:/Users/hgner/hakantest/proje7-engine"
+DSP_DATA_DIR = "C:/Users/hgner/hakantest/proje10/data"

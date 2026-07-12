@@ -12,9 +12,11 @@ uv sync            # install (Python 3.12, locked deps)
 uv run pytest      # full test suite — runs against a bundled stub engine, no C++ needed
 ```
 
-MCP registration is automatic in Claude Code: the committed `.mcp.json` starts the server via
-`uv run dsp-server` when you open this project. For Claude Desktop, run
-`scripts/register-claude-desktop.ps1`.
+MCP registration is automatic in supported coding agents: Codex uses the committed
+`.codex/config.toml` for this trusted project, while Claude Code uses `.mcp.json`. Both launch the
+server through `uv run dsp-server`; do not start a second stdio instance by hand. After adding or
+changing the Codex registration, restart Codex and open a fresh task in this project. For Claude
+Desktop, run `scripts/register-claude-desktop.ps1`.
 
 ## Tool packs
 

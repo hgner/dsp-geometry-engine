@@ -41,6 +41,10 @@ and T20 — no `print()` under `src/` (stdout is MCP JSON-RPC; tests are exempt)
 
 ## MCP registration
 
+- Codex: automatic for this trusted project. The committed `.codex/config.toml` launches
+  `uv --directory <repo> run dsp-server` with `MPLBACKEND=Agg`, `DSP_ENGINE_ROOT`, and
+  `DSP_DATA_DIR` set. Restart Codex and open a fresh task after changing the registration; verify
+  it with `/mcp` in Codex or `codex mcp list` from the repository root.
 - Claude Code: automatic. The committed `.mcp.json` launches `uv --directory <repo> run dsp-server`
   with `MPLBACKEND=Agg`, `DSP_ENGINE_ROOT`, and `DSP_DATA_DIR` set. Do not also start the server by
   hand inside a session.
