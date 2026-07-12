@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from mcp.server.fastmcp import FastMCP
 
 from bodymesh_server import blender_bridge, jobs
@@ -29,6 +31,7 @@ def _list_bodymesh_parameters(query: str | None = None, limit: int = 40) -> str:
 
 def _prepare_bodymesh_job(
     front_image: str,
+    rig_sex: str,
     side_image: str | None = None,
     back_image: str | None = None,
     front_mask: str | None = None,
@@ -40,6 +43,7 @@ def _prepare_bodymesh_job(
     try:
         return jobs.prepare_job(
             front_image=front_image,
+            rig_sex=rig_sex,
             side_image=side_image,
             back_image=back_image,
             front_mask=front_mask,
@@ -99,6 +103,8 @@ def _get_bodymesh_job(job_id: str) -> str:
             status=str(manifest.get("status") or "unknown"),
             job_dir=str(directory),
             known_height_m=manifest.get("known_height_m"),
+            rig_sex=str(manifest.get("rig_sex") or ""),
+            engine_skeleton_sha256=manifest.get("engine_skeleton_sha256"),
             references=[dict(value) for value in references if isinstance(value, dict)],
             candidates=[dict(value) for value in candidates if isinstance(value, dict)],
         ).model_dump_json()
@@ -111,9 +117,9 @@ def register(mcp: FastMCP) -> None:
     def inspect_bodymesh_runtime() -> str:
         """Inspect the local Blender 4.2 executable and installed body add-ons without creating a mesh.
 
-        Returns the resolved direct blender.exe (never the launcher), MPFB/MB-LAB versions, supported
-        backend, local data directory, allowed reference roots, and blocking warnings. MPFB 2.0.x is
-        the supported generator; MB-LAB is reported but intentionally not invoked.
+        Returns the resolved direct blender.exe (never the launcher), MPFB/MB-LAB versions, engine
+        skeleton/bake availability, local data directory, allowed reference roots, and blocking
+        warnings. MPFB 2.0.x is the supported generator; MB-LAB is reported but not invoked.
         """
 
         return _inspect_bodymesh_runtime()
@@ -132,6 +138,7 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def prepare_bodymesh_job(
         front_image: str,
+        rig_sex: Literal["male", "female"],
         side_image: str | None = None,
         back_image: str | None = None,
         front_mask: str | None = None,
@@ -142,14 +149,16 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """Copy consented body reference images into an isolated local job.
 
-        Inputs must be beneath BODYMESH_INPUT_ROOTS. Front is required; calibrated side and known
-        height materially improve fitting. Optional binary masks should normally come from the DSP
+        Inputs must be beneath BODYMESH_INPUT_ROOTS. Front and explicit rig_sex (male/female) are
+        required; calibrated side and known height materially improve fitting. Optional binary masks
+        should normally come from the DSP
         MCP's segment_image tool and must match their source image dimensions. The tool normalizes
         files to PNG, records hashes, and returns a job_id; it does not upload images or run Blender.
         """
 
         return _prepare_bodymesh_job(
             front_image,
+            rig_sex,
             side_image,
             back_image,
             front_mask,
@@ -171,8 +180,9 @@ def register(mcp: FastMCP) -> None:
         """Create one immutable MPFB candidate in a headless Blender subprocess.
 
         Macro and detailed target values are bounded to [0,1]; target names must come from
-        list_bodymesh_parameters. The result includes character.blend, body.obj, DSP-compatible
-        body_dsp.ply, and front/side/back silhouette renders. Repeated calls with revised values
+        list_bodymesh_parameters. The result includes neutral Blender/OBJ/DSP-PLY artifacts,
+        silhouette renders, an exact 55-bone arms-down body_engine.glb, and validated
+        character_bake_cli JSON with skin weights/tangents/clips. Repeated calls with revised values
         create new candidates for an LLM-driven render/compare/adjust loop. This is parametric
         fitting, not one-shot photo-to-3D reconstruction.
         """

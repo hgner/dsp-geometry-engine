@@ -322,7 +322,10 @@ def _run(request: dict) -> dict:
     macro = _macro_details(target_service, request.get("macro_parameters") or {})
     basemesh = human_service.create_human(
         mask_helpers=True,
-        detailed_helpers=False,
+        # Keep joint-* landmark groups until the engine-retarget worker has
+        # fitted MPFB's topology weights to the exact 55-bone rig. The mask
+        # still hides helpers from neutral snapshots/renders.
+        detailed_helpers=True,
         extra_vertex_groups=False,
         feet_on_ground=True,
         scale=0.1,

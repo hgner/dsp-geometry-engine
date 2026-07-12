@@ -19,8 +19,9 @@ stdio instances by hand. After adding or changing a registration, restart the cl
 fresh task in this project. For Claude Desktop, run `scripts/register-claude-desktop.ps1`.
 
 The body-mesh MCP creates bounded MPFB candidates from explicit parameters, retains front/side image
-references, renders comparison silhouettes, and exports Blender/OBJ/DSP-PLY artifacts. It does not
-claim one-shot photo reconstruction. See [`docs/BODY-MESH-MCP.md`](docs/BODY-MESH-MCP.md).
+references, renders comparison silhouettes, and exports both neutral DSP telemetry and an engine-ready
+55-bone arms-down GLB/baked character with skin weights and tangents. It does not claim one-shot photo
+reconstruction. See [`docs/BODY-MESH-MCP.md`](docs/BODY-MESH-MCP.md).
 
 ## Tool packs
 

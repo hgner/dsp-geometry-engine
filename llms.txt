@@ -158,7 +158,8 @@
 
 22. Blender body-mesh generation is a SEPARATE local stdio MCP (`bodymesh-server`, 5 tools), not a
     DSP toolset pack. It uses the installed Blender 4.2 + MPFB 2.0.x through a background subprocess
-    and immutable JSON jobs under `data/bodymesh/`. The client LLM orchestrates both MCPs; neither
+    and immutable JSON jobs under `data/bodymesh/`. Completed candidates also pass through an exact
+    55-bone arms-down Blender retarget and `character_bake_cli`. The client LLM orchestrates both MCPs; neither
     server calls the other. Never start either stdio server manually inside a registered session.
 
 23. Body-photo fitting is an iterative PARAMETRIC approximation, not one-shot reconstruction.
@@ -175,7 +176,11 @@
 
 25. MPFB is the ONLY supported body backend. MB-LAB 1.8.1 may be reported by environment discovery
     but is never invoked: it is archived and its own data/model terms default generated meshes to
-    AGPL-3. The Blender-side MPFB worker is GPL-3.0-or-later and isolated from the outer MCP by JSON.
+    AGPL-3. The Blender-side workers are GPL-3.0-or-later and isolated from the outer MCP by JSON.
     `body_dsp.ply` is neutral Blender telemetry (meters; posed=rest; pseudo-joint `body`), suitable for
-    topology/descriptive DSP only. It is NOT a proje7-engine dump and cannot support LBS/deformer RCA
-    until the mesh passes through the established retarget/bake pipeline and engine telemetry lane.
+    topology/descriptive DSP only. The separate `body_engine.glb` + `body_engine.baked.json` carry the
+    exact sex-specific engine skeleton, arms-down bind, normalized four-slot weights, UV tangents, and
+    validated engine clips; inverse binds, clip bone references, downward arm directions, and all 23
+    left/right skin-locality pairs are producer-gated. `mpfb_result.json` is intermediate;
+    candidate `result.json` is the authoritative atomic success/failure. Use the baked JSON for
+    `--character` posing and LBS/deformer telemetry.

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from bodymesh_server import config
+from bodymesh_server.engine_contract import load_engine_skeleton
 from bodymesh_server.paths import confined_child, normalize_image, validate_id, validate_input_image
 from bodymesh_server.schemas import PreparedJob, ReferenceInfo
 
@@ -56,6 +57,7 @@ def load_job(job_id: str) -> tuple[Path, dict[str, Any]]:
 def prepare_job(
     *,
     front_image: str,
+    rig_sex: str,
     side_image: str | None = None,
     back_image: str | None = None,
     front_mask: str | None = None,
@@ -64,6 +66,11 @@ def prepare_job(
     known_height_m: float | None = None,
     label: str | None = None,
 ) -> PreparedJob:
+    rig_sex = str(rig_sex).strip().lower()
+    if rig_sex not in {"male", "female"}:
+        raise ValueError("rig_sex must be male or female")
+    skeleton_source = config.engine_skeleton_path(rig_sex).resolve(strict=True)
+    skeleton = load_engine_skeleton(skeleton_source, rig_sex)
     if known_height_m is not None and not 0.4 <= float(known_height_m) <= 2.5:
         raise ValueError("known_height_m must be in [0.4, 2.5]")
     config.ensure_data_dirs()
@@ -80,6 +87,9 @@ def prepare_job(
     }
     references: list[ReferenceInfo] = []
     try:
+        skeleton_destination = directory / "engine" / skeleton_source.name
+        skeleton_destination.parent.mkdir(parents=True)
+        shutil.copyfile(skeleton_source, skeleton_destination)
         for view, (image_raw, mask_raw) in inputs.items():
             if image_raw is None:
                 if mask_raw is not None:
@@ -136,6 +146,9 @@ def prepare_job(
         "status": "prepared",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "known_height_m": float(known_height_m) if known_height_m is not None else None,
+        "rig_sex": rig_sex,
+        "engine_skeleton_path": str(skeleton_destination),
+        "engine_skeleton_sha256": skeleton.sha256,
         "references": [reference.model_dump() for reference in references],
         "candidates": [],
         "warnings": warnings,
@@ -152,6 +165,9 @@ def prepare_job(
         job_dir=str(directory),
         manifest_path=str(manifest),
         known_height_m=payload["known_height_m"],
+        rig_sex=rig_sex,
+        engine_skeleton_path=str(skeleton_destination),
+        engine_skeleton_sha256=skeleton.sha256,
         references=references,
         warnings=warnings,
     )

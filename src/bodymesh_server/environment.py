@@ -125,12 +125,22 @@ def inspect_runtime() -> RuntimeReport:
     addons = [_mpfb_info(), _mblab_info()]
     if not addons[0].supported:
         warnings.append("MPFB 2.0.x was not detected; generation is blocked until it is installed")
+    skeleton_paths = [config.engine_skeleton_path(sex) for sex in ("female", "male")]
+    missing_skeletons = [str(path) for path in skeleton_paths if not path.is_file()]
+    bake_executable = config.character_bake_exe()
+    if missing_skeletons:
+        warnings.append("engine skeleton assets are missing: " + ", ".join(missing_skeletons))
+    if not bake_executable.is_file():
+        warnings.append(f"character_bake_cli is missing: {bake_executable}")
     return RuntimeReport(
         blender_shortcut=str(config.blender_shortcut()),
         blender_executable=str(exe) if str(exe) else None,
         blender_exists=exe.is_file(),
         data_dir=str(config.data_dir()),
         input_roots=[str(root) for root in config.input_roots()],
+        engine_skeleton_dir=str(config.engine_skeleton_dir()),
+        character_bake_executable=str(bake_executable),
+        engine_contract_available=not missing_skeletons and bake_executable.is_file(),
         addons=addons,
         warnings=warnings,
     )

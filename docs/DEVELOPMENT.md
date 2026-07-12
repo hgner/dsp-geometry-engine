@@ -46,7 +46,8 @@ and T20 — no `print()` under `src/` (stdout is MCP JSON-RPC; tests are exempt)
   `DSP_DATA_DIR` set. Restart Codex and open a fresh task after changing the registration; verify
   it with `/mcp` in Codex or `codex mcp list` from the repository root.
 - Blender body-mesh: the same config registers the separate local-only `bodymesh-server`. It invokes
-  the direct Blender 4.2 executable in background mode and uses the installed MPFB extension. Never
+  the direct Blender 4.2 executable in background mode, uses the installed MPFB extension, reads the
+  55-bone assets from `BODYMESH_ENGINE_SKELETON_DIR`, and runs `BODYMESH_CHARACTER_BAKE_EXE`. Never
   launch `blender-launcher.exe` from automation and never expose this private-photo/process surface
   over HTTP. See `docs/BODY-MESH-MCP.md`.
 - Claude Code: automatic. The committed `.mcp.json` launches `uv --directory <repo> run dsp-server`
@@ -90,6 +91,7 @@ that drives the actual root-cause session:
   also does a `docker build` (build only, no push) to keep the Dockerfile honest.
 - Real-engine verification is deliberately NOT in CI: it is the local PowerShell lane
   (`scripts/verify-engine.ps1`, `scripts/verify-local.ps1`).
-- Real Blender/MPFB verification is also local-only. CI uses `tests/stub_blender.py`; the body-mesh
-  bridge tests still exercise request validation, subprocess/result handling, artifact confinement,
-  and DSP-PLY parsing without installing Blender.
+- Real Blender/MPFB/engine-bake verification is also local-only. CI uses `tests/stub_blender.py` and
+  `tests/stub_character_bake.py`; the body-mesh bridge tests still exercise request validation,
+  subprocess/result handling, artifact confinement, exact 55-bone validation, skin/tangent gates,
+  and DSP-PLY parsing without installing Blender or the C++ tools.

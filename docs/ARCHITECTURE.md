@@ -72,10 +72,14 @@ with a single explicit path (a `.py` path runs via the current interpreter — t
 
 `bodymesh-server` is intentionally not a DSP toolset pack. It is a second local stdio server with a
 larger execution/privacy boundary: explicit reference images are copied into MCP-owned jobs, then a
-validated JSON request drives `blender.exe --background` and MPFB 2.0.x. Blender returns only a JSON
-result plus `.blend`, OBJ, orthographic masks, and a DSP-compatible neutral PLY under
-`data/bodymesh/`. The client LLM coordinates those artifacts with the existing imaging, perceptual,
-and topology tools. See `docs/BODY-MESH-MCP.md` for the exact contract and limitations.
+validated JSON request drives `blender.exe --background` and MPFB 2.0.x. A second confined Blender
+worker maps MPFB's topology weights onto the exact sex-specific 55-bone engine skeleton, bakes an
+arms-down rest, and exports a skinned/tangent GLB. `character_bake_cli` then produces the baked engine
+JSON, which a pure-Python producer gate validates before completion, including bind/inverse-bind
+consistency, clip references, arm direction, and left/right skin locality. Neutral `.blend`/OBJ/PLY and
+orthographic masks remain available under `data/bodymesh/` for comparison/topology. The client LLM
+coordinates those artifacts with the existing imaging, perceptual, topology, and engine telemetry
+tools. See `docs/BODY-MESH-MCP.md` for the exact contract and limitations.
 
 ## Tool surface
 

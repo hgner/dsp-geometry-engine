@@ -69,6 +69,30 @@ def main() -> int:
     request = json.loads(Path(args.request).read_text(encoding="utf-8"))
     candidate = Path(request["candidate_dir"])
     candidate.mkdir(parents=True, exist_ok=True)
+    if request.get("glb_path"):
+        glb = Path(request["glb_path"])
+        glb.write_bytes(b"glTF-stub-engine-character")
+        Path(args.result).write_text(
+            json.dumps(
+                {
+                    "status": "complete",
+                    "glb_path": str(glb),
+                    "rig_sex": request["rig_sex"],
+                    "bone_count": 55,
+                    "rest_pose": "arms-down",
+                    "vertex_count": 13_380,
+                    "max_influences": 1,
+                    "mapped_vertices": 13_380,
+                    "source_side_mapping": "swapped-after-z-flip",
+                    "side_locality_pairs": 23,
+                    "source_height_m": 1.75,
+                    "warnings": ["stub engine retarget"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        print("stub Blender engine retarget complete")
+        return 0
     blend = candidate / "character.blend"
     obj = candidate / "body.obj"
     ply = candidate / "body_dsp.ply"

@@ -13,6 +13,10 @@ DEFAULT_MPFB_ROOT = Path(
 DEFAULT_MBLAB_ROOT = Path(
     "C:/Users/hgner/AppData/Roaming/Blender Foundation/Blender/4.2/scripts/addons/MB-Lab-master"
 )
+DEFAULT_ENGINE_SKELETON_DIR = Path("C:/Users/hgner/hakantest/proje8/scripts/blender")
+DEFAULT_CHARACTER_BAKE_EXE = Path(
+    "C:/Users/hgner/hakantest/proje7-engine/build/windows-msvc-static-md-release/character_bake_cli.exe"
+)
 
 
 def data_dir() -> Path:
@@ -45,6 +49,20 @@ def mpfb_root() -> Path:
 
 def mblab_root() -> Path:
     return Path(os.environ.get("BODYMESH_MBLAB_ROOT", str(DEFAULT_MBLAB_ROOT)))
+
+
+def engine_skeleton_dir() -> Path:
+    return Path(os.environ.get("BODYMESH_ENGINE_SKELETON_DIR", str(DEFAULT_ENGINE_SKELETON_DIR)))
+
+
+def engine_skeleton_path(sex: str) -> Path:
+    if sex not in {"male", "female"}:
+        raise ValueError("rig_sex must be male or female")
+    return engine_skeleton_dir() / f"skeleton_{sex}.json"
+
+
+def character_bake_exe() -> Path:
+    return Path(os.environ.get("BODYMESH_CHARACTER_BAKE_EXE", str(DEFAULT_CHARACTER_BAKE_EXE)))
 
 
 def input_roots() -> tuple[Path, ...]:

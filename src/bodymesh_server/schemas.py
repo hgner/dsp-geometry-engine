@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +27,9 @@ class RuntimeReport(_Schema):
     blender_exists: bool
     data_dir: str
     input_roots: list[str]
+    engine_skeleton_dir: str
+    character_bake_executable: str
+    engine_contract_available: bool
     addons: list[AddonInfo]
     supported_backend: str = "mpfb"
     execution_mode: str = "local-stdio/background-subprocess"
@@ -52,6 +55,9 @@ class PreparedJob(_Schema):
     job_dir: str
     manifest_path: str
     known_height_m: float | None = None
+    rig_sex: Literal["male", "female"]
+    engine_skeleton_path: str
+    engine_skeleton_sha256: str
     references: list[ReferenceInfo]
     warnings: list[str] = Field(default_factory=list)
 
@@ -75,6 +81,12 @@ class CandidateResult(_Schema):
     obj_path: str
     ply_path: str
     meta_path: str
+    engine_glb_path: str
+    baked_character_path: str
+    rig_sex: Literal["male", "female"]
+    bone_count: int
+    rest_pose: str
+    engine_contract: dict[str, Any]
     render_paths: dict[str, str] = Field(default_factory=dict)
     reference_mask_paths: dict[str, str] = Field(default_factory=dict)
     vertex_count: int
@@ -91,6 +103,8 @@ class JobStatus(_Schema):
     status: str
     job_dir: str
     known_height_m: float | None = None
+    rig_sex: str
+    engine_skeleton_sha256: str | None = None
     references: list[dict[str, Any]] = Field(default_factory=list)
     candidates: list[dict[str, Any]] = Field(default_factory=list)
 
