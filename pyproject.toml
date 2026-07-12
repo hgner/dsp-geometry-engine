@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 dsp-server = "dsp_server.server:main"
+dsp-tool = "dsp_server.tool_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]
