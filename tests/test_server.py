@@ -15,7 +15,7 @@ import pytest
 from dsp_server.server import create_server
 from dsp_server.toolsets import AppContext, geometry
 
-# Full 47-tool inventory across the ten packs (curriculum order + rendering + video).
+# Full 49-tool inventory across the eleven packs (curriculum + rendering + video + perceptual).
 EXPECTED_BY_PACK = {
     "geometry": {
         "extract_mesh_telemetry",
@@ -62,6 +62,7 @@ EXPECTED_BY_PACK = {
         "analyze_photometric_consistency",
         "evaluate_occlusion_boundaries",
     },
+    "perceptual": {"evaluate_perceptual_similarity", "verify_identity_coherence"},
 }
 EXPECTED_TOOLS = set().union(*EXPECTED_BY_PACK.values())
 
@@ -74,7 +75,7 @@ def test_all_toolsets_register_expected_tools(stub_engine_env, monkeypatch: pyte
     monkeypatch.delenv("DSP_TOOLSETS", raising=False)
     names = _tool_names(create_server())
     assert names == EXPECTED_TOOLS
-    assert len(names) == 47  # no duplicate names across packs
+    assert len(names) == 49  # no duplicate names across packs
 
 
 def test_toolsets_env_filters_packs(stub_engine_env, monkeypatch: pytest.MonkeyPatch):

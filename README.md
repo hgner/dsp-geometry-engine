@@ -18,8 +18,8 @@ MCP registration is automatic in Claude Code: the committed `.mcp.json` starts t
 
 ## Tool packs
 
-47 tools across 10 packs (the engine's own DSP lane, one pack per relevant EE course, a rendering lane
-for the ray tracer, and a video lane for the AI-video comparison gate). Each pack registers by default;
+49 tools across 11 packs (the engine's own DSP lane, one pack per relevant EE course, a rendering lane
+for the ray tracer, a video lane for the AI-video comparison gate, and a perceptual FR-VQA lane). Each pack registers by default;
 trim per client with the `DSP_TOOLSETS` env var (comma-separated names). General data goes in as
 `.csv/.tsv/.json/.npz/.npy` paths (column-addressed); `.ply` paths address engine dumps as
 `column="<joint>[:posed|rest]"`; video tools take a directory or list of frame images.
@@ -36,12 +36,14 @@ trim per client with the `DSP_TOOLSETS` env var (comma-separated names). General
 | `os` | Operating Systems (Tanenbaum) | `schedule_sim`, `page_replacement_sim`, `bankers_check` |
 | `rendering` | PBR / ray-tracer energy | `verify_brdf_energy` |
 | `video` | AI-video comparison gate | `evaluate_spatiotemporal_frequencies`, `verify_motion_consistency`, `verify_camera_projection`, `analyze_photometric_consistency`, `evaluate_occlusion_boundaries` |
+| `perceptual` | Perceptual / semantic FR-VQA (classical) | `evaluate_perceptual_similarity`, `verify_identity_coherence` |
 
 All tools return small JSON summaries; arrays, plots, models, and images stay on disk under `data/`
-(`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`, `video/`). Preset examples:
+(`plots/`, `series/`, `images/`, `features/`, `models/`, `brdf/`, `video/`, `perceptual/`). Preset examples:
 `DSP_TOOLSETS=geometry,imaging,stats` for a corrugation-RCA session; `DSP_TOOLSETS=engmath,systems,stats`
 for coursework-style calculation; `DSP_TOOLSETS=geometry,rendering` for engine mesh + shader QA;
-`DSP_TOOLSETS=video,imaging,geometry` for the AI-video generation comparison gate.
+`DSP_TOOLSETS=video,imaging,geometry,perceptual` for the full AI-video generation comparison gate
+(math + perceptual).
 
 ## Docs
 

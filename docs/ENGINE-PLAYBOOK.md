@@ -20,7 +20,7 @@ Two standing rules when you use them on the engine:
    tools cross-check, localize, and explain — they don't replace the in-engine gate.
 
 Trim the visible tool set per session with `DSP_TOOLSETS` (e.g. `geometry,rendering` for a mesh+shader
-session) so the model isn't choosing among 47 tools when 8 are relevant.
+session) so the model isn't choosing among 49 tools when 8 are relevant.
 
 ---
 
@@ -41,6 +41,8 @@ session) so the model isn't choosing among 47 tools when 8 are relevant.
 | Generated frame's lighting ignores the geometry | `analyze_photometric_consistency` | video |
 | Generated frame's occlusion edges are blurred / bleed | `evaluate_occlusion_boundaries` | video |
 | Generated frame looks soft / lost texture detail | `compare_wavelet_signatures` | imaging |
+| "The math flags a huge error but it looks fine" (shift) | `evaluate_perceptual_similarity` | perceptual |
+| Object morphs / changes identity across frames | `verify_identity_coherence` | perceptual |
 | A feedback/physics loop won't reach a target state | `state_space_analysis` | systems |
 | Filter/controller stability, resonance, margins | `pole_zero`, `bode`, `lti_response` | systems |
 | Aliasing after a resample / sampling-rate choice | `sampling_check` | systems |
@@ -167,9 +169,28 @@ can only guess). Run them on a representative keyframe.
   < `ref_ok` is the firm read (the generator softened the edges); the `boundary_sharpness_ratio` vs flat
   interior is the weaker, content-dependent fallback when no reference is given.
 
-Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry` and calls
-these over MCP against its generated-vs-reference frames — this server is the measurement product, the
-pipeline is the client.
+The last two are the PERCEPTUAL / semantic layer — they bridge *mathematical* parity (everything above)
+and *human* parity, and are classical pure-scipy stand-ins for LPIPS / DINOv2 (no torch, no downloaded
+weights — the server stays a pure-wheel, deterministic, cloud/cron-safe measurement product; honestly
+not neural-SOTA):
+
+- **"The math says huge error, but it looks identical"** → `evaluate_perceptual_similarity` (perceptual):
+  the TIE-BREAKER. A generator that shifts a wood-grain texture 3 px is a massive FFT/wavelet error yet
+  perceptually fine. CW-SSIM (Complex-Wavelet SSIM over a Gabor bank) is shift-tolerant — it stays ~1
+  under a small translation — so a high `cw_ssim` with a low pixel `ssim` (large `shift_tolerant_gap`)
+  means "benign shift, intent preserved". Low `cw_ssim` = a real perceptual distortion. Use it to
+  overrule a red flag from `compare_depth_renders` / `compare_wavelet_signatures`.
+- **An object morphs / changes identity across frames** → `verify_identity_coherence` (perceptual):
+  optical flow tracks WHERE pixels go; this tracks WHAT they are. Feed a frame sequence + the engine's
+  object mask (ID / segmentation pass); it reports the cosine drift of the object's colour+texture
+  signature vs frame 0. `first_break_frame` is the exact frame a jacket's material identity flips
+  (`verdict` coherent / identity-drift / morph). Classical (colour+texture, not fine semantics), and it
+  uses a FIXED mask region — pair with `verify_motion_consistency` if the object moves a lot.
+
+Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry,perceptual`
+and calls these over MCP against its generated-vs-reference frames — this server is the measurement
+product, the pipeline is the client. (proje8 already has torch/GPU, so a true neural LPIPS/DINOv2 gate
+belongs there, calling these math + classical-perceptual gates for the rigid checks.)
 
 ---
 
@@ -230,7 +251,7 @@ dumps addressable as `column="<joint>[:posed|rest]"`:
 
 ## For a fresh engine session
 
-Register the server (it's already wired at user + project scope; new sessions see all 47 tools), set
+Register the server (it's already wired at user + project scope; new sessions see all 49 tools), set
 `DSP_TOOLSETS` to the lanes your task needs, and start from the symptom index above. The corrugation RCA
 is *closed* (verdict: source Blender bake, not the engine — see `llms.txt` rule 8), so a new mesh
 investigation begins with `analyze_mesh_topology` + `lbs_differential` to classify a fresh defect before

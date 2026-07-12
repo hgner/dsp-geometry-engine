@@ -65,7 +65,7 @@
     Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
     relink together (stale-sibling policy).
 
-11. Tool packs (see the README table for the full 47-tool inventory): `geometry`
+11. Tool packs (see the README table for the full 49-tool inventory): `geometry`
     (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`,
     `lbs_differential`, `score_bake`, `analyze_mesh_topology`), `imaging`, `stats`, `engmath`,
     `systems`, `ml`, `netqueue`, `os`, `rendering`. When/where to reach for each in an engine session
@@ -139,3 +139,19 @@
     smoothing. The comparison gate spans packs: `score_bake` (silhouette/shape) +
     `compare_wavelet_signatures` (spatial detail) + the video pack (temporal + camera/lighting/occlusion).
     See docs/ENGINE-PLAYBOOK.md.
+
+21. perceptual pack (classical FR-VQA — the perceptual/semantic layer that bridges MATHEMATICAL parity
+    and HUMAN parity; pure-scipy stand-ins for LPIPS/DINOv2, NO torch/weights so the server stays
+    pure-wheel + deterministic + cloud/cron-safe). `evaluate_perceptual_similarity` reports CW-SSIM
+    (Complex-Wavelet SSIM over a complex Gabor bank — SHIFT-TOLERANT: a few-pixel texture shift, a huge
+    FFT/wavelet error, still scores ~1) alongside MS-SSIM and pixel SSIM; `shift_tolerant_gap` =
+    cw_ssim - ssim is large exactly when the difference is a benign shift. Use it as the TIE-BREAKER:
+    when compare_depth_renders / compare_wavelet_signatures flag a big error but cw_ssim is high, the
+    generator preserved the perceptual intent. `verify_identity_coherence` takes a frame sequence + an
+    engine object mask (ID/segmentation pass) and tracks the masked object's colour+texture signature's
+    cosine drift across frames — the exact frame an object MORPHS (leather jacket -> plastic raincoat),
+    which optical flow (where pixels move, not what they are) cannot see; verdict coherent /
+    identity-drift / morph, with first_break_frame localizing the change. Both are CLASSICAL and honest
+    about it: cw_ssim is not neural-SOTA, and the identity tracker flags gross colour/texture/shape
+    morphing (not fine semantics) over a FIXED mask region. Full arrays live under data/perceptual/.
+    Full comparison-gate preset: DSP_TOOLSETS=video,imaging,geometry,perceptual.

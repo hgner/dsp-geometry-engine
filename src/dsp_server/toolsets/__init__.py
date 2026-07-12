@@ -104,9 +104,15 @@ def _register_video(mcp: FastMCP, ctx: AppContext) -> None:
     video.register(mcp, ctx)
 
 
+def _register_perceptual(mcp: FastMCP, ctx: AppContext) -> None:
+    from dsp_server.toolsets import perceptual
+
+    perceptual.register(mcp, ctx)
+
+
 # Course packs in curriculum order (llms.txt rules 12-18 mirror this order);
-# 'rendering' is the PBR/ray-tracer energy lane (rule 19), 'video' the temporal
-# comparison gate (rule 20).
+# 'rendering' is the PBR/ray-tracer energy lane (rule 19), 'video' the comparison
+# gate (rule 20), 'perceptual' the classical FR-VQA layer (rule 21).
 TOOLSETS: dict[str, Callable[[FastMCP, AppContext], None]] = {
     "geometry": _register_geometry,
     "imaging": _register_imaging,
@@ -118,4 +124,5 @@ TOOLSETS: dict[str, Callable[[FastMCP, AppContext], None]] = {
     "os": _register_os,
     "rendering": _register_rendering,
     "video": _register_video,
+    "perceptual": _register_perceptual,
 }

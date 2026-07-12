@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dsp_server.engine.image2d import load_image_gray
+from dsp_server.engine.image2d import load_image_gray, load_image_rgb
 
 # Cap the decoded volume so a huge sequence can't hang a synchronous MCP call.
 MAX_FRAMES = 512
@@ -111,3 +111,60 @@ def load_frame_stack(source: str | Path | list[str], max_frames: int | None = No
             )
         frames[i] = img
     return FrameStack(frames=frames, paths=[str(p) for p in paths], n_dropped=n_dropped)
+
+
+@dataclass
+class RgbFrameStack:
+    """One loaded sequence in colour: ``frames`` is (T, H, W, 3) float64 in [0, 1].
+
+    The RGB counterpart of :class:`FrameStack`, for the identity-coherence gate which
+    needs colour to see an object change hue (a grayscale stack would miss it)."""
+
+    frames: np.ndarray
+    paths: list[str]
+    n_dropped: int = 0
+
+    @property
+    def n_frames(self) -> int:
+        return int(self.frames.shape[0])
+
+    @property
+    def height(self) -> int:
+        return int(self.frames.shape[1])
+
+    @property
+    def width(self) -> int:
+        return int(self.frames.shape[2])
+
+
+def load_rgb_frame_stack(source: str | Path | list[str], max_frames: int | None = None) -> RgbFrameStack:
+    """Load a frame sequence into a ``(T, H, W, 3)`` float64 [0, 1] RGB volume.
+
+    Same ordering / shape / cap contract as :func:`load_frame_stack` (all frames must
+    share the first frame's height and width), but preserves the three colour channels.
+    """
+    paths = resolve_frame_paths(source)
+    cap = MAX_FRAMES if max_frames is None else min(int(max_frames), MAX_FRAMES)
+    n_dropped = max(0, len(paths) - cap)
+    paths = paths[:cap]
+    if len(paths) < 2:
+        raise VideoError(f"need >= 2 frames for a video analysis, got {len(paths)} from {source!r}")
+
+    first = load_image_rgb(paths[0])
+    h, w = first.shape[:2]
+    if len(paths) * h * w * 3 > MAX_CELLS:
+        raise VideoError(
+            f"stack is {len(paths)}x{h}x{w}x3 = {len(paths) * h * w * 3:.2e} cells — limit "
+            f"{MAX_CELLS:.0e}; pass max_frames= or downscale the frames"
+        )
+    frames = np.empty((len(paths), h, w, 3), dtype=np.float64)
+    frames[0] = first
+    for i, p in enumerate(paths[1:], start=1):
+        img = load_image_rgb(p)
+        if img.shape[:2] != (h, w):
+            raise VideoError(
+                f"frame {p.name} is {img.shape[:2]} but frame 0 is {(h, w)} — all frames must match "
+                "(resize the sequence to a common resolution first)"
+            )
+        frames[i] = img
+    return RgbFrameStack(frames=frames, paths=[str(p) for p in paths], n_dropped=n_dropped)
