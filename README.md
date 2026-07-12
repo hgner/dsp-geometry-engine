@@ -48,6 +48,7 @@ for coursework-style calculation; `DSP_TOOLSETS=geometry,rendering` for engine m
 ## Docs
 
 - `docs/ENGINE-PLAYBOOK.md` — **when/where to reach for each tool in an engine-debugging session** (advisory).
+- `docs/COMPARISON-GATE.md` — **the AI-video comparison gate**: symptom→tool, how the per-tool verdicts combine into one clip pass/fail, and the honest caveats (proven end-to-end in `tests/test_comparison_gate_e2e.py`).
 - `docs/ARCHITECTURE.md` — data flow, two-repo layout, tool surface, PLY/stderr contract, isolation logic.
 - `docs/DEVELOPMENT.md` — setup, lint/test, engine build lane, MCP registration, adding a course pack.
 - `docs/DEPLOYMENT.md` — container image, AWS (App Runner / ECS Fargate), env var reference, security.

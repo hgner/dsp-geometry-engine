@@ -190,7 +190,10 @@ not neural-SOTA):
 Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry,perceptual`
 and calls these over MCP against its generated-vs-reference frames — this server is the measurement
 product, the pipeline is the client. (proje8 already has torch/GPU, so a true neural LPIPS/DINOv2 gate
-belongs there, calling these math + classical-perceptual gates for the rigid checks.)
+belongs there, calling these math + classical-perceptual gates for the rigid checks.) The full
+integration contract — how the per-tool verdicts COMBINE into one clip pass/fail, plus the
+multi-gate attribution rules — is `docs/COMPARISON-GATE.md` (proven end-to-end in
+`tests/test_comparison_gate_e2e.py`).
 
 ---
 
