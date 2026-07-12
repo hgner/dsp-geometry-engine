@@ -174,26 +174,39 @@ def _gate_text(text: str, allow_primes: bool = False) -> str:
 
 
 def _reject_huge_powers(expr: sp.Basic) -> None:
-    """Reject any Pow with a purely-numeric exponent of magnitude > MAX_EXPONENT.
+    """Reject a numeric power whose (possibly COMPOUNDED) numeric exponent exceeds
+    MAX_EXPONENT — the general defense against materializing a multi-gigabyte bignum
+    at an evaluating parse. Three shapes all reach the same blowup and are all caught
+    here on the ``evaluate=False`` tree (before any base is raised):
 
-    The textual ``_gate_powers`` bounds bare exponents but a *parenthesized*
-    exponent (``2**(900*900*900)``, ``2**(999999*999999)``) slips past it; if it
-    reached an evaluating parse the base power would materialize a multi-gigabyte
-    bignum and hang the process. This runs on the ``evaluate=False`` parse, so the
-    exponent product (bounded literals, no nested ``**``) is cheap to ``doit`` and
-    the base is never raised.
+    * a bare/parenthesized exponent — ``2**900``, ``2**(900*900*900)``;
+    * a nested-base tower — ``((2**64)**64)**64`` has effective exponent ``64**3`` on
+      the base, yet each individual ``Pow.exp`` is only 64, so checking exponents in
+      isolation misses it. Descending the base chain and MULTIPLYING the numeric
+      exponents catches the compounded magnitude.
+
+    A symbolic base or a symbolic exponent anywhere in the chain cannot auto-evaluate
+    to a bignum, so that level stops the descent.
     """
     for pw in expr.atoms(sp.Pow):
-        exponent = pw.exp
-        if exponent.free_symbols:
-            continue  # symbolic exponent never auto-evaluates to a bignum
-        try:
-            value = exponent.doit()
-            magnitude = abs(float(value)) if value.is_number else 0.0
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if magnitude > MAX_EXPONENT:
-            raise ExpressionError(f"power exponent {value} exceeds the limit of {MAX_EXPONENT}")
+        product = 1.0
+        node: sp.Basic = pw
+        while isinstance(node, sp.Pow):
+            exponent = node.exp
+            if exponent.free_symbols:
+                break  # symbolic exponent: this level won't materialize a bignum
+            try:
+                value = exponent.doit()
+                if not getattr(value, "is_number", False):
+                    break
+                product *= abs(float(value))
+            except (TypeError, ValueError, OverflowError):
+                product = float("inf")  # overflow to a bignum is itself a rejection
+            if product > MAX_EXPONENT:
+                raise ExpressionError(
+                    f"power exponent (compounded to {product:.3g}) exceeds the limit of {MAX_EXPONENT}"
+                )
+            node = node.base
 
 
 def parse_expr_safe(

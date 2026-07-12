@@ -160,7 +160,7 @@ def _verify_brdf_energy(
         np.savez(curve_path, wo_deg=np.asarray(angles, dtype=np.float64), rho=rho)
 
         mc_u = mc_c = variance_reduction = None
-        if int(mc_samples) > 0:
+        if int(mc_samples) >= 2:  # a variance estimate needs >= 2 samples; 1 -> skip, don't sink the report
             wo0 = float(thetas[0])  # firefly risk is quantified at the first requested angle
             n_mc = int(mc_samples)
             mc_u = brdf.mc_variance(model, wo0, n_mc, seed=int(seed), sampling="uniform", params=params)

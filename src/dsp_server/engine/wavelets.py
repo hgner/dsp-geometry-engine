@@ -31,6 +31,12 @@ _TINY = 1e-30
 _PARITY_TOL = 0.05  # |parity - 1| within this band counts as "at parity"
 _MACRO_STRUCT_FLOOR = 0.8  # coarsest-scale parity below this reads as structural mismatch
 _MICRO_SMOOTH_RATIO = 0.7  # micro < ratio * macro reads as micro-texture smoothing
+# A band whose energy is below this fraction of the image's TOTAL energy is negligible.
+# (An absolute _TINY floor sat below a constant image's float-roundoff detail energy,
+# so a flat reference produced meaningless ~1e30 parities.)
+_REL_ENERGY_FLOOR = 1e-6
+_PARITY_CAP = 100.0  # cap gen/ref so an "excess" band reports a bounded number, not 1e30
+_GAIN_CEIL = 1.5  # parity above this reads as ADDED energy (hallucinated detail), not loss
 
 
 @dataclass
@@ -112,15 +118,21 @@ class WaveletComparison:
     gen: WaveletEnergies
 
 
-def _safe_parity(gen_energy: float, ref_energy: float) -> float:
-    """gen/ref with a div0 guard: both-empty bands report perfect parity."""
-    if ref_energy <= _TINY and gen_energy <= _TINY:
+def _safe_parity(gen_energy: float, ref_energy: float, floor: float) -> float:
+    """gen/ref, treating any band below ``floor`` (a fraction of total energy) as empty.
+
+    Both empty -> perfect parity; only the REFERENCE empty -> the generator added energy
+    a band the reference lacks (capped ``_PARITY_CAP`` "excess"); otherwise the bounded
+    ratio (also capped, so a near-empty reference can't yield a meaningless 1e30)."""
+    if ref_energy <= floor and gen_energy <= floor:
         return 1.0
-    return float(gen_energy / max(ref_energy, _TINY))
+    if ref_energy <= floor:
+        return _PARITY_CAP  # excess energy in an otherwise-empty band (hallucinated detail)
+    return float(min(gen_energy / ref_energy, _PARITY_CAP))
 
 
 def _interpret(approx_parity: float, macro_parity: float, micro_parity: float) -> str:
-    """Name the failure mode from the coarse-vs-fine parity split."""
+    """Name the failure mode from the coarse-vs-fine parity split (loss AND gain)."""
 
     def near_one(value: float) -> bool:
         return abs(value - 1.0) <= _PARITY_TOL
@@ -129,6 +141,10 @@ def _interpret(approx_parity: float, macro_parity: float, micro_parity: float) -
         return "parity"
     if macro_parity < _MACRO_STRUCT_FLOOR or approx_parity < _MACRO_STRUCT_FLOOR:
         return "structural mismatch"
+    # ADDED fine energy (shimmer / boil / hallucinated texture) — a gen-vs-ref gate must
+    # flag this, not silently pass it as "parity" the way a loss-only ladder did.
+    if micro_parity > _GAIN_CEIL:
+        return "excess detail / hallucination"
     if micro_parity < _MICRO_SMOOTH_RATIO * macro_parity:
         return "micro-texture loss / smoothing"
     return "parity"
@@ -150,17 +166,21 @@ def compare_wavelets(
     ref = wavelet_energies(img_ref, wavelet=wavelet, levels=levels)
     gen = wavelet_energies(img_gen, wavelet=wavelet, levels=levels)
 
+    # A band is "empty" relative to the images' total energy, not an absolute _TINY that
+    # sits below a constant image's float-roundoff detail energy (W2).
+    floor = _REL_ENERGY_FLOOR * max(ref.total_energy, gen.total_energy, _TINY)
     detail_parity = [
-        _safe_parity(g, r)
+        _safe_parity(g, r, floor)
         for g, r in zip(gen.detail_energy_by_scale, ref.detail_energy_by_scale, strict=False)
     ]
     if not detail_parity:
         raise ValueError("no detail scales to compare (degenerate decomposition)")
-    approx_parity = _safe_parity(gen.approx_energy, ref.approx_energy)
+    approx_parity = _safe_parity(gen.approx_energy, ref.approx_energy, floor)
     micro_parity = detail_parity[0]  # finest
     macro_parity = detail_parity[-1]  # coarsest
-    losses = [1.0 - p for p in detail_parity]
-    worst_scale = int(np.argmax(losses)) + 1  # 1-indexed level (index 0 == level 1)
+    # worst = largest DEVIATION from parity (a hallucinated GAIN is as wrong as a LOSS).
+    deviations = [abs(1.0 - p) for p in detail_parity]
+    worst_scale = int(np.argmax(deviations)) + 1  # 1-indexed level (index 0 == level 1)
     interpretation = _interpret(approx_parity, macro_parity, micro_parity)
     return WaveletComparison(
         wavelet=ref.wavelet,

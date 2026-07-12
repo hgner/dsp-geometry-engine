@@ -154,11 +154,10 @@ def _load_json(path: Path) -> tuple[dict[str, np.ndarray], dict[str, list]]:
             raise TabularError(f"matrix has a non-numeric cell: {exc}") from exc
         numeric = {f"col{i}": np.ascontiguousarray(mat[:, i]) for i in range(width)}
     elif isinstance(payload, list) and payload and all(isinstance(v, dict) for v in payload):
-        keys: list[str] = []
-        for rec in payload:
-            for k in rec:
-                if k not in keys:
-                    keys.append(k)
+        # dict.fromkeys is O(total keys) and order-preserving; a growing-list `in`
+        # membership test was O(n^2) — a crafted array of distinct-key records could
+        # hang for hours BEFORE the cell guard (which now runs right after) fired.
+        keys: list[str] = list(dict.fromkeys(k for rec in payload for k in rec))
         _check_cells(len(payload), max(len(keys), 1))
         for k in keys:
             values = [rec.get(k) for rec in payload]
@@ -196,6 +195,25 @@ def _npz_members(path: Path) -> np.lib.npyio.NpzFile:
         raise TabularError(f"cannot read npz '{path}': {exc}") from exc
 
 
+# A member's DECLARED uncompressed byte size lives in the zip central directory, so it
+# can be read WITHOUT decompressing — the guard against a zip bomb (a tiny compressed
+# npz that expands to tens of GB of zeros, which the 64 MB _check_size passes). Budget
+# is MAX_CELLS float64-equivalent bytes; a smaller-dtype member is bounded conservatively.
+_NPZ_MEMBER_BYTE_BUDGET = int(MAX_CELLS) * 8
+
+
+def _npz_guard(z: np.lib.npyio.NpzFile, name: str) -> None:
+    try:
+        uncompressed = int(z.zip.getinfo(f"{name}.npy").file_size)
+    except (KeyError, AttributeError):
+        return  # can't determine cheaply; the post-load size check still applies
+    if uncompressed > _NPZ_MEMBER_BYTE_BUDGET:
+        raise TabularError(
+            f"array '{name}' decompresses to {uncompressed / 2**20:.0f} MB — limit "
+            f"{_NPZ_MEMBER_BYTE_BUDGET / 2**20:.0f} MB; downsample or split the archive"
+        )
+
+
 def _npz_pick(z: np.lib.npyio.NpzFile, key: str | None) -> tuple[str, np.ndarray]:
     keys = [k for k in z.files if k != DT_KEY]
     if key is not None:
@@ -206,6 +224,7 @@ def _npz_pick(z: np.lib.npyio.NpzFile, key: str | None) -> tuple[str, np.ndarray
         picked = keys[0]
     else:
         raise TabularError(f"archive has {len(keys)} arrays — pass key= one of {keys}")
+    _npz_guard(z, picked)  # reject a zip bomb before it decompresses into memory
     arr = z[picked]
     if arr.size > MAX_CELLS:
         raise TabularError(f"array '{picked}' has {arr.size:.2e} elements — limit {MAX_CELLS:.0e}")
@@ -224,6 +243,7 @@ def _npz_dt(z: np.lib.npyio.NpzFile) -> float | None:
 def _npz_named_matrix(z: np.lib.npyio.NpzFile) -> tuple[np.ndarray, list[str]] | None:
     """Feature-matrix convention: members 'X' + 'feature_names'."""
     if "X" in z.files and "feature_names" in z.files:
+        _npz_guard(z, "X")  # reject a zip bomb before it decompresses into memory
         x = np.asarray(z["X"], dtype=np.float64)
         names = [str(n) for n in z["feature_names"]]
         if x.ndim == 2 and len(names) == x.shape[1]:
@@ -248,6 +268,7 @@ def _parse_ply_column(column: str | int | None) -> tuple[str, str]:
 def _load_ply_series(path: Path, column: str | int | None, cache_dir: Path | None) -> SeriesLoad:
     from dsp_server.engine import ply, transforms  # lazy: keep tabular numpy-only otherwise
 
+    _check_size(path)  # the .ply path read the whole file into memory with no size cap
     joint, channel = _parse_ply_column(column)
     dump = ply.load_dump_cached(path, cache_dir)
     bone_map = ply.bone_map_for(path)

@@ -156,6 +156,8 @@ def read_engine_ply(path: Path | str) -> EngineDump:
     if n_face > 0:
         face_block = "\n".join(lines[i + n_vertex : i + n_vertex + n_face])
         fcols = np.loadtxt(io.StringIO(face_block), dtype=np.int64, ndmin=2)
+        if fcols.shape[0] != n_face:  # truncated dump: fewer face rows than the header claims
+            raise ValueError(f"{path}: header declares {n_face} faces but {fcols.shape[0]} face rows present")
         if fcols.shape[1] != 4 or not np.all(fcols[:, 0] == 3):
             raise ValueError(f"{path}: expected triangle face rows '3 i j k'")
         faces = fcols[:, 1:4].astype(np.int32)
@@ -363,7 +365,10 @@ def bone_map_for(dump_path: Path | str) -> dict[int, str]:
     """Best-available bone map for a dump: its ``.meta.json`` (bridge-produced
     dumps), else the ``--palette-out`` sidecar's authoritative bone names."""
     dump_path = Path(dump_path)
-    meta = load_meta(dump_path)
+    try:
+        meta = load_meta(dump_path)  # a truncated/corrupt .meta.json must degrade, not raise
+    except (ValueError, OSError):
+        meta = None
     if meta is not None and meta.bone_map:
         return dict(meta.bone_map)
     palette_path = dump_path.with_suffix(".palette.json")

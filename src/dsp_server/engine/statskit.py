@@ -57,6 +57,8 @@ def normality_test(y: np.ndarray) -> tuple[str, float, float]:
     """(test_name, statistic, p): Shapiro-Wilk for n <= 5000, else D'Agostino's
     normaltest (Shapiro loses calibration on huge n; normaltest needs n >= 8)."""
     y = np.asarray(y, dtype=np.float64)
+    if float(np.std(y)) == 0.0:  # a constant sample cannot be tested (scipy returns/raises NaN)
+        return "degenerate", 0.0, 1.0
     if y.size <= 5000:
         res = scistats.shapiro(y)
         return "shapiro", float(res.statistic), float(res.pvalue)
@@ -111,6 +113,16 @@ def describe_series(y: np.ndarray, ci_level: float = 0.95) -> DescribeStats:
     ci_std_lo = math.sqrt((n - 1) * s2 / float(scistats.chi2.ppf(1.0 - tail, n - 1)))
     ci_std_hi = math.sqrt((n - 1) * s2 / float(scistats.chi2.ppf(tail, n - 1)))
     test_name, test_stat, test_p = normality_test(y)
+    # skew/kurtosis are 0/0 = NaN for a zero-variance sample (and scipy warns on the
+    # catastrophic cancellation); short-circuit to the defined value (a constant is
+    # trivially symmetric / mesokurtic) rather than leaking NaN -> JSON null.
+    if std == 0.0:
+        skewness = kurtosis_excess = 0.0
+    else:
+        skewness = float(scistats.skew(y, bias=False))
+        kurtosis_excess = float(scistats.kurtosis(y, fisher=True, bias=False))
+        skewness = skewness if math.isfinite(skewness) else 0.0
+        kurtosis_excess = kurtosis_excess if math.isfinite(kurtosis_excess) else 0.0
     return DescribeStats(
         n=n,
         mean=mean,
@@ -119,8 +131,8 @@ def describe_series(y: np.ndarray, ci_level: float = 0.95) -> DescribeStats:
         min=float(y.min()),
         max=float(y.max()),
         median=float(np.median(y)),
-        skewness=float(scistats.skew(y, bias=False)),
-        kurtosis_excess=float(scistats.kurtosis(y, fisher=True, bias=False)),
+        skewness=skewness,
+        kurtosis_excess=kurtosis_excess,
         quantiles=quantiles,
         ci_level=float(ci_level),
         ci_mean_lo=float(ci_mean_lo),

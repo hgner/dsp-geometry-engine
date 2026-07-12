@@ -147,11 +147,16 @@ def hu_moments(mask: np.ndarray) -> np.ndarray:
 
 
 def match_shapes_i2(hu_a: np.ndarray, hu_b: np.ndarray) -> float:
-    """OpenCV CONTOURS_MATCH_I2 distance over log-scaled Hu moments (0 = identical)."""
+    """OpenCV CONTOURS_MATCH_I2 distance over log-scaled Hu moments (0 = identical).
+
+    I2 is the DIRECT difference ``sum |m_a - m_b|`` (which is what HU_TARGET=0.30 was
+    calibrated for). The reciprocal ``|1/m_a - 1/m_b|`` form is OpenCV's I1, and it
+    blows up when a log-Hu moment is near 0 (|h_i| ~ 1, reachable for elongated human
+    silhouettes) — a spurious huge distance that falsely flips the pose verdict."""
     d = 0.0
     for a, b in zip(hu_a, hu_b, strict=True):
         if a != 0.0 and b != 0.0:
-            d += abs(1.0 / a - 1.0 / b)
+            d += abs(a - b)
     return float(d)
 
 
@@ -278,7 +283,13 @@ def score_bake(
         raise ValueError(f"bake mask is empty (all background): {bake_mask_path}")
     bake_mask_full = _largest_component(bake_mask_full)
 
-    corr_db, corr_freq, corr_deg = depth_corrugation_db(bake_gray_full, bake_mask_full)
+    # The mesh corrugation lane is ADVISORY (the pose lane is the reliable gate), so a
+    # too-small / degenerate mask bbox (roi_spectrum_2d needs >= 8x8) must NOT sink the
+    # whole tool — degrade to "not measured" (0 dB -> mesh_ok) and let pose drive.
+    try:
+        corr_db, corr_freq, corr_deg = depth_corrugation_db(bake_gray_full, bake_mask_full)
+    except ValueError:
+        corr_db, corr_freq, corr_deg = 0.0, 0.0, 0.0
 
     bake_sil = normalize_silhouette(bake_mask_full)
     bake_gray = _normalize_gray(bake_gray_full, bake_mask_full)

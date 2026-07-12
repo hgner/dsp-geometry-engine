@@ -85,8 +85,12 @@ def build_system(
             raise ValueError(f"the num/den form needs BOTH lists — {SYSTEM_FORM_HINT}")
         num_c = [float(v) for v in num]
         den_c = [float(v) for v in den]
-        if not num_c or not den_c or not any(den_c):
-            raise ValueError(f"den must contain at least one nonzero coefficient — {SYSTEM_FORM_HINT}")
+        if not num_c or not den_c or not any(den_c) or not any(num_c):
+            # a zero numerator is H == 0: group_delay/bode are then all-singular (undefined),
+            # and used to surface as null float fields rather than a clean error.
+            raise ValueError(
+                f"num and den must each contain at least one nonzero coefficient — {SYSTEM_FORM_HINT}"
+            )
         if domain == "z":
             # z^-1 convention: right-pad the shorter polynomial so den=[1,-0.5]
             # reads as 1 - 0.5*z^-1 (num=[1] -> z/(z-0.5), impulse 0.5**n at n=0).

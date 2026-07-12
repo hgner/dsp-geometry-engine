@@ -696,7 +696,8 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         dump's 'rest' vs 'posed' channels (one engine posed dump carries both), or two different
         dumps/clips. Returns SignalComparison JSON with a full RoughnessSchema per side, deltas
         (b minus a) for rel_ripple / hf_energy_ratio / peak_prominence_db, and the b/a ripple
-        ratio; when both dumps have the same vertex count it additionally reports per-vertex
+        ratio; when both dumps have the same vertex count AND the joint mask is non-empty in both
+        (the joint resolves to overlapping vertices), it additionally reports per-vertex
         displacement stats over the joint mask (max/mean/rms of ||delta p|| in meters and the
         axial t-location of the maximum). save_plot writes an overlay figure of both profiles and
         spectra and returns its path."""

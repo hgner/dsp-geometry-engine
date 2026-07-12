@@ -78,6 +78,6 @@ def auth_token() -> str | None:
 def enabled_toolsets() -> list[str] | None:
     """Comma list of toolset names to register; None = all."""
     raw = os.environ.get("DSP_TOOLSETS")
-    if not raw:
+    if not raw or not raw.strip():  # unset OR whitespace-only -> all packs (was: whitespace -> none)
         return None
     return [name.strip() for name in raw.split(",") if name.strip()]

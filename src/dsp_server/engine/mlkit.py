@@ -239,7 +239,9 @@ def run_reduce(
             )
         pca = PCA(n_components=n_components, random_state=seed)
         z = pca.fit_transform(xs)
-        evr = [float(v) for v in pca.explained_variance_ratio_]
+        # explained_variance_ratio_ is 0/0 = NaN on a zero-variance (all-constant) matrix;
+        # report 0.0 rather than leaking NaN -> JSON null on a float field.
+        evr = [float(v) if np.isfinite(v) else 0.0 for v in pca.explained_variance_ratio_]
         components = np.asarray(pca.components_, dtype=np.float64)
         prefix = "pc"
     elif method == "lda":
@@ -252,7 +254,10 @@ def run_reduce(
             )
         lda = LinearDiscriminantAnalysis(n_components=n_components)
         z = lda.fit_transform(xs, np.asarray(labels))
-        evr = [float(v) for v in np.asarray(lda.explained_variance_ratio_)[: z.shape[1]]]
+        evr = [
+            float(v) if np.isfinite(v) else 0.0
+            for v in np.asarray(lda.explained_variance_ratio_)[: z.shape[1]]
+        ]
         components = np.asarray(lda.scalings_[:, : z.shape[1]].T, dtype=np.float64)
         prefix = "ld"
     else:

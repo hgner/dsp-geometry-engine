@@ -628,6 +628,15 @@ def _classify_eval(
                     error=f"label column '{leak}' is also listed in feature_columns",
                     hint="remove it — training a classifier on its own label is leakage",
                 ).model_dump_json()
+            # A non-numeric column parses to all-NaN and would silently drop EVERY row at
+            # the finite-row filter below ("0 fully-finite rows"); name it instead.
+            if x.size:
+                bad = [names[j] for j in range(x.shape[1]) if not np.isfinite(x[:, j]).any()]
+                if bad:
+                    return ToolError(
+                        error=f"feature column(s) {bad} are non-numeric (all values non-finite)",
+                        hint="drop them or list only numeric columns in feature_columns",
+                    ).model_dump_json()
         else:
             table = tabular.load_table(src, key=key, cache_dir=ctx.cache_dir)
             match = _match_name(list(table), label_column)
