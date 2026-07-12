@@ -1,0 +1,101 @@
+"""Compact JSON schemas returned by the body-mesh MCP."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class _Schema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class AddonInfo(_Schema):
+    backend: str
+    installed: bool
+    enabled_hint: bool | None = None
+    version: str | None = None
+    path: str
+    supported: bool
+    note: str | None = None
+
+
+class RuntimeReport(_Schema):
+    blender_shortcut: str
+    blender_executable: str | None
+    blender_exists: bool
+    data_dir: str
+    input_roots: list[str]
+    addons: list[AddonInfo]
+    supported_backend: str = "mpfb"
+    execution_mode: str = "local-stdio/background-subprocess"
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ReferenceInfo(_Schema):
+    view: str
+    source_path: str
+    copied_path: str
+    mask_path: str | None = None
+    mask_width: int | None = None
+    mask_height: int | None = None
+    mask_sha256: str | None = None
+    width: int
+    height: int
+    sha256: str
+
+
+class PreparedJob(_Schema):
+    job_id: str
+    status: str
+    job_dir: str
+    manifest_path: str
+    known_height_m: float | None = None
+    references: list[ReferenceInfo]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ParameterCatalog(_Schema):
+    backend: str
+    macro_parameters: dict[str, str]
+    target_query: str | None = None
+    target_matches: list[str] = Field(default_factory=list)
+    matches_truncated: bool = False
+    note: str
+
+
+class CandidateResult(_Schema):
+    job_id: str
+    candidate_id: str
+    status: str
+    backend: str
+    candidate_dir: str
+    blend_path: str
+    obj_path: str
+    ply_path: str
+    meta_path: str
+    render_paths: dict[str, str] = Field(default_factory=dict)
+    reference_mask_paths: dict[str, str] = Field(default_factory=dict)
+    vertex_count: int
+    face_count: int
+    duration_s: float
+    macro_parameters: dict[str, float] = Field(default_factory=dict)
+    target_parameters: dict[str, float] = Field(default_factory=dict)
+    stderr_tail: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class JobStatus(_Schema):
+    job_id: str
+    status: str
+    job_dir: str
+    known_height_m: float | None = None
+    references: list[dict[str, Any]] = Field(default_factory=list)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BodyMeshError(_Schema):
+    error: str
+    hint: str | None = None
+    stderr_tail: list[str] | None = None

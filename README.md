@@ -13,10 +13,14 @@ uv run pytest      # full test suite — runs against a bundled stub engine, no 
 ```
 
 MCP registration is automatic in supported coding agents: Codex uses the committed
-`.codex/config.toml` for this trusted project, while Claude Code uses `.mcp.json`. Both launch the
-server through `uv run dsp-server`; do not start a second stdio instance by hand. After adding or
-changing the Codex registration, restart Codex and open a fresh task in this project. For Claude
-Desktop, run `scripts/register-claude-desktop.ps1`.
+`.codex/config.toml` for this trusted project, while Claude Code uses `.mcp.json`. They register the
+49-tool DSP server and a separate 5-tool local Blender/MPFB body-mesh server; do not start duplicate
+stdio instances by hand. After adding or changing a registration, restart the client and open a
+fresh task in this project. For Claude Desktop, run `scripts/register-claude-desktop.ps1`.
+
+The body-mesh MCP creates bounded MPFB candidates from explicit parameters, retains front/side image
+references, renders comparison silhouettes, and exports Blender/OBJ/DSP-PLY artifacts. It does not
+claim one-shot photo reconstruction. See [`docs/BODY-MESH-MCP.md`](docs/BODY-MESH-MCP.md).
 
 ## Tool packs
 

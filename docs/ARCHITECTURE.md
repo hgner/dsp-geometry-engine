@@ -68,6 +68,15 @@ with a single explicit path (a `.py` path runs via the current interpreter — t
 | `src/cxx_bridge/engine_cli.py` | Engine discovery, `run_field_dump` subprocess wrapper, feature detection of patched flags, output naming, stale-binary guard. |
 | `tests/stub_engine.py` | CLI-faithful fake engine (synthetic corrugated cylinder) used by CI and local tests. |
 
+## Separate Blender body-mesh MCP
+
+`bodymesh-server` is intentionally not a DSP toolset pack. It is a second local stdio server with a
+larger execution/privacy boundary: explicit reference images are copied into MCP-owned jobs, then a
+validated JSON request drives `blender.exe --background` and MPFB 2.0.x. Blender returns only a JSON
+result plus `.blend`, OBJ, orthographic masks, and a DSP-compatible neutral PLY under
+`data/bodymesh/`. The client LLM coordinates those artifacts with the existing imaging, perceptual,
+and topology tools. See `docs/BODY-MESH-MCP.md` for the exact contract and limitations.
+
 ## Tool surface
 
 | Tool (pack) | Key inputs | Output schema |

@@ -155,3 +155,27 @@
     about it: cw_ssim is not neural-SOTA, and the identity tracker flags gross colour/texture/shape
     morphing (not fine semantics) over a FIXED mask region. Full arrays live under data/perceptual/.
     Full comparison-gate preset: DSP_TOOLSETS=video,imaging,geometry,perceptual.
+
+22. Blender body-mesh generation is a SEPARATE local stdio MCP (`bodymesh-server`, 5 tools), not a
+    DSP toolset pack. It uses the installed Blender 4.2 + MPFB 2.0.x through a background subprocess
+    and immutable JSON jobs under `data/bodymesh/`. The client LLM orchestrates both MCPs; neither
+    server calls the other. Never start either stdio server manually inside a registered session.
+
+23. Body-photo fitting is an iterative PARAMETRIC approximation, not one-shot reconstruction.
+    Neither MPFB nor MB-LAB infers a body from pixels. Prefer calibrated front + side references,
+    known height, and masks produced by `segment_image`; create a candidate, compare its orthographic
+    masks with DSP imaging/perceptual tools, then revise bounded MPFB macro/target values. A single
+    clothed/perspective image is underdetermined and must never be presented as an exact reconstruction.
+
+24. The body-mesh process boundary accepts only allowlisted local image paths, copies them into the
+    job, never accepts arbitrary Python/operators/Blender args/output paths, invokes direct
+    `blender.exe` (never `blender-launcher.exe`) with a timeout + single-worker lock, strips secret
+    environment variables, and validates every returned artifact path. Keep it local-only; remote
+    exposure needs a dedicated identity, private staging, strong auth, network policy, and quotas.
+
+25. MPFB is the ONLY supported body backend. MB-LAB 1.8.1 may be reported by environment discovery
+    but is never invoked: it is archived and its own data/model terms default generated meshes to
+    AGPL-3. The Blender-side MPFB worker is GPL-3.0-or-later and isolated from the outer MCP by JSON.
+    `body_dsp.ply` is neutral Blender telemetry (meters; posed=rest; pseudo-joint `body`), suitable for
+    topology/descriptive DSP only. It is NOT a proje7-engine dump and cannot support LBS/deformer RCA
+    until the mesh passes through the established retarget/bake pipeline and engine telemetry lane.
