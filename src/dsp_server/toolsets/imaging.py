@@ -1,11 +1,13 @@
 """Imaging tool pack (ELE407 week-14 2-D lane + ELE490 image processing).
 
-Five tools operating strictly on images already on disk (never the GPU):
+Six tools operating strictly on images already on disk (never the GPU):
 compare_depth_renders (2-D spectral cross-validation, unchanged) plus the ELE490
 Gonzalez & Woods lanes — enhance_image (intensity transformations), filter_image
 (spatial + frequency-domain filtering), segment_image (thresholding + morphology
 + connected components: THE defect-mask tool), restore_image (honest-scipy
-restoration). Processed outputs are 16-bit grayscale PNGs under data/images/
+restoration) — and compare_wavelet_signatures (per-scale wavelet band-energy
+parity: the spatial-detail half of the comparison gate). Processed outputs are
+16-bit grayscale PNGs under data/images/
 (masks are 8-bit {0, 255}), so every tool's output is a valid input to every
 other imaging tool. Same contract as the geometry pack: JSON summaries only,
 ToolError envelope on failure, module-level ``_impl`` for direct test calls.

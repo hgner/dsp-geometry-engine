@@ -8,7 +8,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-DEFAULT_ENGINE_ROOT = Path("C:/Users/hgner/hakantest/proje7-engine")
+# Fallback only: an engine checkout sitting next to this repository's own directory
+# (…/<parent>/proje10 -> …/<parent>/proje7-engine). Set DSP_ENGINE_ROOT when it lives
+# elsewhere, or DSP_ENGINE_CLI to pin one exe. Only extract_mesh_telemetry reads this;
+# the other 48 tools never touch the engine.
+DEFAULT_ENGINE_ROOT = Path(__file__).resolve().parents[2].parent / "proje7-engine"
 
 # Preferred exe first: static-md-release has no DXR/GPU dependency.
 ENGINE_CLI_CANDIDATES = (
@@ -63,7 +67,16 @@ def transport() -> str:
 
 
 def http_host() -> str:
-    return os.environ.get("DSP_HOST", "0.0.0.0")
+    """Bind address for the HTTP transport — loopback by default, deliberately.
+
+    Two reasons the default is not ``0.0.0.0``: binding every interface publishes
+    all 49 tools (arbitrary file paths in, files written under ``data/``) to the
+    whole network, and the MCP SDK only auto-enables its DNS-rebinding protection
+    when the host is ``127.0.0.1``/``localhost``/``::1`` (see FastMCP's
+    ``transport_security`` default). Containers set ``DSP_HOST=0.0.0.0`` explicitly
+    — there the published port, not the bind address, is the isolation boundary.
+    """
+    return os.environ.get("DSP_HOST", "127.0.0.1")
 
 
 def http_port() -> int:
@@ -71,8 +84,23 @@ def http_port() -> int:
 
 
 def auth_token() -> str | None:
-    """Optional static bearer token for the HTTP transport (minimum-viable auth)."""
+    """Static bearer token for the HTTP transport (minimum-viable auth).
+
+    The empty string is treated as unset, so ``DSP_AUTH_TOKEN=""`` fails closed rather than
+    degrading into an always-matching credential. Any other value is used verbatim — a
+    whitespace-only value is a (bad) token, not an absence.
+    """
     return os.environ.get("DSP_AUTH_TOKEN") or None
+
+
+def allow_insecure_http() -> bool:
+    """Explicit opt-in to serving streamable-HTTP with no bearer token.
+
+    Only the exact string ``1`` opts in; anything else (including ``true``/``yes``)
+    leaves the server fail-closed. Without a token and without this flag the HTTP
+    transport refuses to start — see ``dsp_server.server._resolve_http_auth``.
+    """
+    return os.environ.get("DSP_ALLOW_INSECURE_HTTP") == "1"
 
 
 def enabled_toolsets() -> list[str] | None:

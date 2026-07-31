@@ -24,7 +24,8 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 # --- Engine smoke: only when the exe resolves (same rules as verify-engine.ps1) ---
 $engineRoot = $env:DSP_ENGINE_ROOT
 if ([string]::IsNullOrWhiteSpace($engineRoot)) {
-  $engineRoot = "C:\Users\hgner\hakantest\proje7-engine"
+  # Fallback: an engine checkout sitting next to this repository's own directory.
+  $engineRoot = Join-Path (Split-Path -Parent $repoRoot) "proje7-engine"
 }
 $exe = $env:DSP_ENGINE_CLI
 if ([string]::IsNullOrWhiteSpace($exe)) {
@@ -47,6 +48,13 @@ if (-not [string]::IsNullOrWhiteSpace($exe) -and (Test-Path -LiteralPath $exe)) 
 # --- Container smoke: only when docker is installed --------------------------------
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if ($docker) {
+  # compose.yaml declares DSP_AUTH_TOKEN as mandatory (${DSP_AUTH_TOKEN:?set a token})
+  # because the HTTP transport is fail-closed. Supply a throwaway token for the smoke
+  # so interpolation resolves; a real deployment sets a long random one.
+  if ([string]::IsNullOrWhiteSpace($env:DSP_AUTH_TOKEN)) {
+    $env:DSP_AUTH_TOKEN = [guid]::NewGuid().ToString('N')
+  }
+
   Write-Output "verify-local: docker compose build"
   docker compose build
   if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -63,7 +71,7 @@ if ($docker) {
     Write-Output "verify-local: container exited during smoke - FAIL"
     exit 1
   }
-  Write-Output "verify-local: container up on http://localhost:8000/mcp - tearing down"
+  Write-Output "verify-local: container up on http://127.0.0.1:8000/mcp - tearing down"
   docker compose down
   if ($LASTEXITCODE -ne 0) { exit 1 }
 } else {

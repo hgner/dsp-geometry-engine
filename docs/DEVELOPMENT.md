@@ -4,9 +4,13 @@
 
 - uv (0.11+). uv manages the interpreter — the project pins Python 3.12 via `.python-version`
   (system Python version is irrelevant).
-- Windows only for the real-engine lane: MSVC/vcpkg toolchain via proje7-engine, and the engine
-  worktree at `C:\Users\hgner\hakantest\proje7-engine` (or point `DSP_ENGINE_ROOT` elsewhere).
-- No engine is needed for development: the test suite runs entirely against `tests/stub_engine.py`.
+- Windows only for the real-engine lane: an MSVC/vcpkg toolchain and a proje7-engine checkout, whose
+  location comes from `DSP_ENGINE_ROOT` (a single exe can be pinned with `DSP_ENGINE_CLI` instead).
+  The engine is a separate private repository and is not required to work on this one.
+- No engine is needed for development: 48 of the 49 DSP tools are pure Python over files on disk, and
+  the one that is not (`extract_mesh_telemetry`) runs against `tests/stub_engine.py` — which is what
+  the whole test suite and CI use (conftest sets `DSP_ENGINE_CLI=tests/stub_engine.py`). Likewise no
+  Blender: the body-mesh tests use `tests/stub_blender.py` + `tests/stub_character_bake.py`.
 
 ## Setup
 
@@ -35,28 +39,50 @@ and T20 — no `print()` under `src/` (stdout is MCP JSON-RPC; tests are exempt)
   `VERIFY_OK`/`VERIFY_FAIL`): rest + two posed procedural dumps, exit 0, `bone-map:` present on
   stderr, and posed-vs-posed vertex counts equal (the rest iso-surface is a different pipeline —
   never compare its count against a posed dump). Post-patch it adds a rigged3 posed dump + palette
-  sidecar check (boneCount == bone-map entries), skipped with a warning if the `D:` asset is absent.
-- The MCP server itself never builds the engine: `engine_stale` in tool responses is a warning only.
+  sidecar check (boneCount == bone-map entries), skipped with a warning when the baked character
+  asset the script points at is absent — it lives in the operator's local character library, not in
+  this repository.
+- The DSP MCP server itself never builds the engine: `engine_stale` in tool responses is a warning only.
   Rebuild explicitly with the script above.
 
 ## MCP registration
 
-- Codex: automatic for this trusted project. The committed `.codex/config.toml` launches
-  `uv --directory <repo> run dsp-server` with `MPLBACKEND=Agg`, `DSP_ENGINE_ROOT`, and
-  `DSP_DATA_DIR` set. Restart Codex and open a fresh task after changing the registration; verify
-  it with `/mcp` in Codex or `codex mcp list` from the repository root.
-- Blender body-mesh: the same config registers the separate local-only `bodymesh-server`. It invokes
+The project registers two independent child processes. A shared config file does not make either
+server a plugin, toolset, or subprocess of the other.
+
+| Registered name | Command | Configuration family |
+| --- | --- | --- |
+| `dsp-geometry-engine` | `uv --directory <repo> run dsp-server` | `DSP_*` |
+| `blender-body-mesh` | `uv --directory <repo> run bodymesh-server` | `BODYMESH_*` |
+
+Neither config file is committed — both are gitignored so nobody inherits another machine's absolute
+paths. Copy the template once and edit the paths in it:
+
+```powershell
+Copy-Item .mcp.json.example .mcp.json                    # Claude Code
+Copy-Item .codex/config.toml.example .codex/config.toml  # Codex
+```
+
+- Codex: automatic for this trusted project once `.codex/config.toml` exists — it launches
+  both commands as separate MCP servers. Restart Codex and open a fresh task after changing the
+  registration; verify both names with `/mcp` in Codex or `codex mcp list` from the repository root.
+- Blender body-mesh: its local-only `bodymesh-server` invokes
   the direct Blender 4.2 executable in background mode, uses the installed MPFB extension, reads the
   55-bone assets from `BODYMESH_ENGINE_SKELETON_DIR`, and runs `BODYMESH_CHARACTER_BAKE_EXE`. Never
   launch `blender-launcher.exe` from automation and never expose this private-photo/process surface
   over HTTP. See `docs/BODY-MESH-MCP.md`.
-- Claude Code: automatic. The committed `.mcp.json` launches `uv --directory <repo> run dsp-server`
-  with `MPLBACKEND=Agg`, `DSP_ENGINE_ROOT`, and `DSP_DATA_DIR` set. Do not also start the server by
-  hand inside a session.
+- Claude Code: automatic once `.mcp.json` exists — it registers both names and launches two stdio
+  processes. Do not also start either command by hand inside a session.
 - Claude Desktop: run `scripts/register-claude-desktop.ps1`. It creates `%APPDATA%\Claude` if
-  missing, merges (never clobbers) into `claude_desktop_config.json`, and resolves the absolute
-  `uv.exe` path via `(Get-Command uv).Source` because Desktop does not inherit the full PATH.
+  missing, merges both registrations (never clobbers) into `claude_desktop_config.json`, and resolves
+  the absolute `uv.exe` path via `(Get-Command uv).Source` because Desktop does not inherit the full
+  PATH.
   The registration is inert until Claude Desktop is actually installed — safe to run early.
+
+The client performs cross-server orchestration by passing returned artifact paths into later tool
+calls. Neither MCP host launches, discovers, or sends MCP requests to the other. The body-mesh bridge
+does reuse `dsp_server.engine.ply` as an ordinary in-process parser; this shared library import does
+not start the DSP MCP host or merge the tool registries.
 
 ## Adding a course pack (the extensibility contract)
 
@@ -71,16 +97,22 @@ New packs inherit the shared kernel for free: the `engine/` math modules, `ply.p
 `Signal1D`, `plots.py`, the `ToolError` envelope, and the engine bridge. Packs are toggled per
 client via `DSP_TOOLSETS` (comma list; unset = all).
 
-## The RCA prompt (Phase 5)
+## The RCA prompt (Phase 5 — concluded 2026-07-11)
 
-Once the engine patch (`--character`/`--palette-out`/`--weights`) has landed, this is the prompt
-that drives the actual root-cause session:
+The engine patch (`--character`/`--palette-out`/`--weights`) landed and this prompt drove the
+root-cause session on the first rigged3 vertex dumps:
 
 > "Run `extract_mesh_telemetry` on cc0_male_rigged3 for clip-cin-stand-attention and
 > clip-cin-walktalk. `localize_defect` on the flexion dump; `analyze_corrugation` on armLowerL;
 > `compare_geometry_signals` rest-vs-posed; then `lbs_differential` with the palette sidecar.
 > Correlate dominant_wavelength_m against the forearm capsule geometry from `--list-sources` to
 > name the guilty weld/weight array."
+
+It reached a verdict (llms.txt rule 8): the forearm ripple is 118-123 cy/m (~8.4 mm, the mesh
+edge-loop spacing, ~20 dB prominence) and is already present in the bind positions, so engine capsule
+welds, flexion deformers, and retargeted weights are exonerated — the defect enters in the upstream
+Blender retarget/bake. Keep the prompt as the template for the next import: the dual-telemetry
+differential (pure-numpy LBS vs engine dump) is the reusable method, not a one-off.
 
 ## CI overview
 

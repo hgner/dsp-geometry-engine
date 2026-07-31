@@ -1,0 +1,50 @@
+# Template. Copy to .codex/config.toml (untracked and gitignored) and edit the paths.
+#
+# "--directory ." resolves against the working directory the client launches from —
+# the repo root for a codex session started there. Use an absolute path if your client
+# starts elsewhere; `uv --directory <missing dir> run dsp-server` fails with
+# "error: The system cannot find the file specified. (os error 2)" and the server never
+# comes up.
+#
+# Every [.env] entry below is optional: delete a line and the in-code default from
+# src/dsp_server/config.py or src/bodymesh_server/config.py applies. DSP_DATA_DIR
+# defaults to <cwd>/data and BODYMESH_DATA_DIR to <cwd>/data/bodymesh, both already
+# correct once uv has chdir'd into the repo, so neither is set here.
+
+[mcp_servers.dsp-geometry-engine]
+command = "uv"
+args = [
+    "--directory",
+    ".",
+    "run",
+    "dsp-server",
+]
+
+# DSP_ENGINE_ROOT is read by exactly one of the 49 tools (extract_mesh_telemetry); the
+# other 48 are pure Python over files on disk. DSP_ENGINE_CLI=tests/stub_engine.py
+# exercises that one without the C++ engine. DSP_TOOLSETS selects packs (unset = all 11).
+[mcp_servers.dsp-geometry-engine.env]
+DSP_ENGINE_ROOT = "C:/path/to/proje7-engine"
+
+# Local stdio only, and independent of dsp-server: 6 tools driving installed
+# Blender 4.2 + MPFB 2.0.x through background subprocesses. Delete this whole section if
+# Blender and MPFB are not installed.
+[mcp_servers.blender-body-mesh]
+command = "uv"
+args = [
+    "--directory",
+    ".",
+    "run",
+    "bodymesh-server",
+]
+
+# BODYMESH_BLENDER_EXE is only needed when Blender is not at the default install
+# location; it must point at blender.exe, never blender-launcher.exe. BODYMESH_MPFB_ROOT
+# is the extension directory containing blender_manifest.toml. BODYMESH_INPUT_ROOTS is
+# the image allowlist enforced at the Blender process boundary — relative entries resolve
+# against the server's working directory, several roots are joined with ";" on Windows
+# (os.pathsep), and it should stay as narrow as the images you actually feed in.
+[mcp_servers.blender-body-mesh.env]
+BODYMESH_BLENDER_EXE = "C:/path/to/blender/blender.exe"
+BODYMESH_MPFB_ROOT = "C:/path/to/blender-config/4.2/extensions/user_default/mpfb"
+BODYMESH_INPUT_ROOTS = "data/bodymesh/inbox"

@@ -36,10 +36,11 @@
    each dump as `<dump>.meta.json`; patched `--character` runs additionally log
    `import-ok verts=... bones=... clips=... packClips=...`.
 
-6. The asset is `D:\Library\characters\cc0_male_rigged3.baked.json`. Its own `clips` array is empty —
-   engine clips are retargeted onto the import at load time. Useful clip ids:
-   `clip-cin-stand-attention` (near-rest) and `clip-cin-walktalk` (flexion). Forearm bones are
-   `armLowerL` / `armLowerR` in the 55-bone engine-canonical skeleton.
+6. The asset is a baked character JSON from the operator's local library, e.g.
+   `<character-library>/cc0_male_rigged3.baked.json` — a path supplied per call (`--character`), never
+   bundled with this repo. Its own `clips` array is empty; engine clips are retargeted onto the import
+   at load time. Useful clip ids: `clip-cin-stand-attention` (near-rest) and `clip-cin-walktalk`
+   (flexion). Forearm bones are `armLowerL` / `armLowerR` in the 55-bone engine-canonical skeleton.
 
 7. Units: all spectra are reported in cycles/meter (`dominant_freq_cpm`), always accompanied by
    `dominant_wavelength_m` (= 1/f) and `ridge_count_est`, the estimated ridge count over the analyzed
@@ -49,9 +50,10 @@
    118-123 cy/m (~8.4 mm = the mesh edge-loop spacing, ~20 dB prominence) and exists IDENTICALLY in
    the raw baked JSON's bind positions (engine rest matches raw JSON to 0.005 mm; posed ≈ rest;
    deformer pushes <= 0.7 mm). Engine capsule welds, flexion deformers, and retargeted weights are
-   EXONERATED — the defect originates in the Blender retarget/bake (`retarget_realistic.py` ->
-   `character_bake_cli`). Pelvis (19.4 dB @ 79 cy/m) and spine show similar peaks. The dual-telemetry
-   method (pure-LBS vs engine dump) remains the tool for future imports.
+   EXONERATED — the defect enters upstream, in the Blender retarget/bake step that produced the
+   character, not in anything the engine does at load or pose time. Pelvis (19.4 dB @ 79 cy/m) and
+   spine show similar peaks. The dual-telemetry method (pure-LBS vs engine dump) remains the tool for
+   future imports.
 
 9. The corrugation was originally observed in depth RENDERS. Check CPU vertex dumps
    (position-space) first; if position-space is quiet, check the normal channel (nx/ny/nz, already in
@@ -65,15 +67,17 @@
     Rebuild explicitly with `scripts/build-engine.ps1`; when the rtx preset is chosen, ALL rtx tools
     relink together (stale-sibling policy).
 
-11. Tool packs (see the README table for the full 49-tool inventory): `geometry`
-    (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`, `localize_defect`,
-    `lbs_differential`, `score_bake`, `analyze_mesh_topology`), `imaging`, `stats`, `engmath`,
-    `systems`, `ml`, `netqueue`, `os`, `rendering`. When/where to reach for each in an engine session
-    is `docs/ENGINE-PLAYBOOK.md`. Every tool returns a compact pydantic-JSON summary — arrays never
-    cross the MCP boundary, they live on disk under `data/` (plots/, series/, images/, features/,
-    models/, brdf/). Packs are toggled per client with the `DSP_TOOLSETS` env var (comma-separated pack
-    names; unset = all packs). General data goes in as .csv/.tsv/.json/.npz/.npy paths (column-addressed);
-    `.ply` paths address engine dumps as `column="<joint>[:posed|rest]"`.
+11. Eleven tool packs (see the README table for the full 49-tool inventory), in `TOOLSETS` order:
+    `geometry` (`extract_mesh_telemetry`, `analyze_corrugation`, `compare_geometry_signals`,
+    `localize_defect`, `lbs_differential`, `score_bake`, `analyze_mesh_topology`), `imaging`, `stats`,
+    `engmath`, `systems`, `ml`, `netqueue`, `os`, `rendering`, `video` (rule 20), `perceptual`
+    (rule 21). Exactly ONE of the 49 tools (`extract_mesh_telemetry`) shells out to the C++ engine;
+    the other 48 are pure Python over files on disk. When/where to reach for each in an engine
+    session is `docs/ENGINE-PLAYBOOK.md`. Every tool returns a compact pydantic-JSON summary —
+    arrays never cross the MCP boundary, they live on disk under `data/` (plots/, series/, images/,
+    features/, models/, brdf/). Packs are toggled per client with the `DSP_TOOLSETS` env var
+    (comma-separated pack names; unset = all packs). General data goes in as .csv/.tsv/.json/.npz/.npy
+    paths (column-addressed); `.ply` paths address engine dumps as `column="<joint>[:posed|rest]"`.
 
 12. stats pack (ELE320): `describe`, `fit_distribution` (MLE + AIC + KS/chi2), `hypothesis_test`
     (auto/t/welch/mannwhitney/ks2/f_var/levene), `regression_fit` (OLS + CIs + residual diagnostics),
@@ -156,11 +160,21 @@
     morphing (not fine semantics) over a FIXED mask region. Full arrays live under data/perceptual/.
     Full comparison-gate preset: DSP_TOOLSETS=video,imaging,geometry,perceptual.
 
-22. Blender body-mesh generation is a SEPARATE local stdio MCP (`bodymesh-server`, 5 tools), not a
-    DSP toolset pack. It uses the installed Blender 4.2 + MPFB 2.0.x through a background subprocess
-    and immutable JSON jobs under `data/bodymesh/`. Completed candidates also pass through an exact
-    55-bone arms-down Blender retarget and `character_bake_cli`. The client LLM orchestrates both MCPs; neither
-    server calls the other. Never start either stdio server manually inside a registered session.
+22. This repo registers TWO independent MCP processes: `dsp-geometry-engine` runs `dsp-server`
+    (49 analysis tools; stdio or streamable HTTP, which must be authenticated when exposed), while
+    `blender-body-mesh` runs
+    `bodymesh-server` (6 body-generation tools; local stdio only). The latter is not running under
+    the former and is not a DSP toolset pack. It uses installed Blender 4.2 + MPFB 2.0.x through
+    background subprocesses and stores immutable JSON jobs under `data/bodymesh/`. Completed
+    candidates also pass through an exact
+    55-bone arms-down Blender retarget and `character_bake_cli`. For completed candidates,
+    `render_identity_set` resolves the MCP-owned `character.blend` and writes the separately versioned
+    `identity/identity-v1` manifest with eight face closeups and three body views; it never mutates the
+    frozen `CandidateResult`. The client LLM alone orchestrates
+    the two MCP connections by passing returned artifact paths into later tool calls; neither server
+    discovers, launches, or calls the other. `bodymesh-server` may reuse pure DSP library modules
+    such as `dsp_server.engine.ply`; that does not start `dsp-server` or merge tool registries. Never
+    start either stdio server manually inside a registered session.
 
 23. Body-photo fitting is an iterative PARAMETRIC approximation, not one-shot reconstruction.
     Neither MPFB nor MB-LAB infers a body from pixels. Prefer calibrated front + side references,
@@ -176,7 +190,8 @@
 
 25. MPFB is the ONLY supported body backend. MB-LAB 1.8.1 may be reported by environment discovery
     but is never invoked: it is archived and its own data/model terms default generated meshes to
-    AGPL-3. The Blender-side workers are GPL-3.0-or-later and isolated from the outer MCP by JSON.
+    AGPL-3. The Blender-side workers are GPL-3.0-or-later and isolated from the `bodymesh-server`
+    host process by JSON.
     `body_dsp.ply` is neutral Blender telemetry (meters; posed=rest; pseudo-joint `body`), suitable for
     topology/descriptive DSP only. The separate `body_engine.glb` + `body_engine.baked.json` carry the
     exact sex-specific engine skeleton, arms-down bind, normalized four-slot weights, UV tangents, and

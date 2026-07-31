@@ -6,7 +6,7 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from bodymesh_server import blender_bridge, jobs
+from bodymesh_server import blender_bridge, identity_render, jobs
 from bodymesh_server.environment import inspect_runtime
 from bodymesh_server.schemas import BodyMeshError, JobStatus
 
@@ -112,6 +112,26 @@ def _get_bodymesh_job(job_id: str) -> str:
         return _error(exc, "pass a job_id returned by prepare_bodymesh_job")
 
 
+def _render_identity_set(job_id: str, candidate_id: str, force: bool = False) -> str:
+    try:
+        return identity_render.render_identity_set(
+            job_id=job_id,
+            candidate_id=candidate_id,
+            force=force,
+        ).model_dump_json()
+    except blender_bridge.BlenderBridgeError as exc:
+        return _error(
+            exc,
+            "pass a completed create_body_mesh job_id/candidate_id; inspect identity Blender logs",
+            tail=exc.tail,
+        )
+    except Exception as exc:
+        return _error(
+            exc,
+            "pass a completed create_body_mesh job_id/candidate_id; no arbitrary Blender paths are accepted",
+        )
+
+
 def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def inspect_bodymesh_runtime() -> str:
@@ -202,6 +222,17 @@ def register(mcp: FastMCP) -> None:
 
         return _get_bodymesh_job(job_id)
 
+    @mcp.tool()
+    def render_identity_set(job_id: str, candidate_id: str, force: bool = False) -> str:
+        """Render the fixed identity-v1 portrait/body set for one completed candidate.
+
+        Produces eight near-frontal closeups with deterministic expression/light variation and
+        front/three-quarter/side body views. The source character.blend is resolved internally,
+        remains unchanged, and outputs are returned through a separately versioned manifest.
+        """
+
+        return _render_identity_set(job_id, candidate_id, force)
+
 
 __all__ = [
     "register",
@@ -210,4 +241,5 @@ __all__ = [
     "_prepare_bodymesh_job",
     "_create_body_mesh",
     "_get_bodymesh_job",
+    "_render_identity_set",
 ]

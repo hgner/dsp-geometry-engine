@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Template. Copy to .mcp.json (untracked and gitignored), edit the paths, then delete this _comment key — .mcp.json is strict JSON and has no comment syntax.",
+    "'--directory .' resolves against the client's working directory. Claude Code launches MCP servers from the directory holding .mcp.json, so '.' is correct there; Claude Desktop does not, so use scripts/register-claude-desktop.ps1 instead, which writes the absolute repo path it derives from its own location.",
+    "Every env entry below is optional: delete a line and the in-code default in src/dsp_server/config.py or src/bodymesh_server/config.py applies. DSP_DATA_DIR defaults to <cwd>/data and BODYMESH_DATA_DIR to <cwd>/data/bodymesh, which are already correct once uv has chdir'd into the repo.",
+    "DSP_ENGINE_ROOT is read by exactly one of the 49 dsp-server tools (extract_mesh_telemetry); the other 48 are pure Python over files on disk. Point DSP_ENGINE_CLI at tests/stub_engine.py to exercise that one without the C++ engine.",
+    "The blender-body-mesh entry needs a local Blender 4.2 + MPFB 2.0.x install; drop the whole entry if you do not have them. Its 6 tools are local stdio only and never reachable through dsp-server.",
+    "BODYMESH_INPUT_ROOTS is the image allowlist for the Blender process boundary — relative entries resolve against the server's working directory, and multiple roots are separated by ';' on Windows (os.pathsep). Keep it as narrow as the images you actually feed in."
+  ],
+  "mcpServers": {
+    "dsp-geometry-engine": {
+      "command": "uv",
+      "args": ["--directory", ".", "run", "dsp-server"],
+      "env": {
+        "DSP_ENGINE_ROOT": "C:/path/to/proje7-engine"
+      }
+    },
+    "blender-body-mesh": {
+      "command": "uv",
+      "args": ["--directory", ".", "run", "bodymesh-server"],
+      "env": {
+        "BODYMESH_BLENDER_EXE": "C:/path/to/blender/blender.exe",
+        "BODYMESH_MPFB_ROOT": "C:/path/to/blender-config/4.2/extensions/user_default/mpfb",
+        "BODYMESH_INPUT_ROOTS": "data/bodymesh/inbox"
+      }
+    }
+  }
+}

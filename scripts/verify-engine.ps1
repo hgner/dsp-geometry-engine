@@ -22,7 +22,8 @@ function Fail([string] $Reason) {
 # --- Resolve engine root + CLI (env override, then the two preset candidates) ---
 $engineRoot = $env:DSP_ENGINE_ROOT
 if ([string]::IsNullOrWhiteSpace($engineRoot)) {
-  $engineRoot = "C:\Users\hgner\hakantest\proje7-engine"
+  # Fallback: an engine checkout sitting next to this repository's own directory.
+  $engineRoot = Join-Path (Split-Path -Parent $repoRoot) "proje7-engine"
 }
 
 $exe = $env:DSP_ENGINE_CLI
@@ -131,8 +132,10 @@ if ($posedCounts[$poseClips[0]] -ne $posedCounts[$poseClips[1]]) {
 $help = Invoke-EngineCli @("--help")
 $helpText = $help.StdOut + "`n" + $help.StdErr
 if ($helpText -match '--character') {
-  $asset = "D:\Library\characters\cc0_male_rigged3.baked.json"
-  if (Test-Path -LiteralPath $asset) {
+  # Optional stage: a baked character JSON from the operator's own asset library.
+  # Point DSP_VERIFY_CHARACTER at one to enable it; unset means skip, not fail.
+  $asset = $env:DSP_VERIFY_CHARACTER
+  if (-not [string]::IsNullOrWhiteSpace($asset) -and (Test-Path -LiteralPath $asset)) {
     $rigPly = Join-Path $verifyDir "rigged3_walktalk.ply"
     $palette = Join-Path $verifyDir "rigged3_walktalk.palette.json"
     Write-Output "verify-engine: rigged3 posed dump -> $rigPly (+palette)"
@@ -154,7 +157,7 @@ if ($helpText -match '--character') {
     }
     Write-Output "verify-engine: rigged3 palette OK (boneCount=$($pal.boneCount))"
   } else {
-    Write-Output "WARNING: rigged3 asset missing ($asset) - skipping --character verification"
+    Write-Output "WARNING: no character asset (set DSP_VERIFY_CHARACTER to a baked JSON) - skipping --character verification"
   }
 } else {
   Write-Output "verify-engine: binary has no --character flag (pre-M5 patch) - skipping rigged3 check"

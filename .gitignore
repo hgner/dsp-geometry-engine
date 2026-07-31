@@ -12,3 +12,22 @@ data/*
 *.ply
 !tests/fixtures/engine_8verts.ply
 *.npz
+
+# MCP client registrations — machine-specific absolute paths; copy the .example
+# templates and edit. scripts/register-claude-desktop.ps1 writes the Desktop one.
+.mcp.json
+.codex/config.toml
+
+# credentials — defensive; nothing matching these is or should be tracked
+.env
+.env.*
+!.env.example
+secrets.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+.pypirc
+.claude/settings.local.json

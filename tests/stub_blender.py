@@ -67,6 +67,71 @@ def _write_ply(path: Path) -> Path:
 def main() -> int:
     args = _args()
     request = json.loads(Path(args.request).read_text(encoding="utf-8"))
+    if request.get("operation") == "identity-render":
+        output_dir = Path(request["output_dir"])
+        renders = []
+        for spec in [*(request.get("closeups") or []), *(request.get("body_views") or [])]:
+            output = output_dir / spec["relative_path"]
+            output.parent.mkdir(parents=True, exist_ok=True)
+            width = int(spec["width"])
+            height = int(spec["height"])
+            image = Image.new("RGB", (width, height), (18, 20, 26))
+            draw = ImageDraw.Draw(image)
+            if spec["kind"] == "closeup":
+                draw.ellipse(
+                    (width * 0.22, height * 0.08, width * 0.78, height * 0.90),
+                    fill=(188, 132, 108),
+                )
+                draw.ellipse(
+                    (width * 0.34, height * 0.38, width * 0.42, height * 0.46),
+                    fill="white",
+                )
+                draw.ellipse(
+                    (width * 0.58, height * 0.38, width * 0.66, height * 0.46),
+                    fill="white",
+                )
+                draw.arc(
+                    (width * 0.38, height * 0.56, width * 0.62, height * 0.72),
+                    start=10,
+                    end=170,
+                    fill=(70, 24, 24),
+                    width=max(1, width // 100),
+                )
+            else:
+                draw.ellipse(
+                    (width * 0.34, height * 0.04, width * 0.66, height * 0.24),
+                    fill=(188, 132, 108),
+                )
+                draw.rounded_rectangle(
+                    (width * 0.27, height * 0.20, width * 0.73, height * 0.94),
+                    radius=max(1, width // 12),
+                    fill=(188, 132, 108),
+                )
+            image.save(output)
+            renders.append(
+                {key: spec[key] for key in ("asset_id", "kind", "category", "view", "expression", "lighting")}
+                | {"path": str(output)}
+            )
+        Path(args.result).write_text(
+            json.dumps(
+                {
+                    "status": "complete",
+                    "preset": request["preset"],
+                    "recipe_sha256": request["recipe_sha256"],
+                    "renderer": request["renderer"],
+                    "blender_version": "stub-blender-4.2",
+                    "mpfb_version": "stub-mpfb-2.0",
+                    "device_used": "STUB",
+                    "material_backend": "stub-material",
+                    "expression_backend": "stub-expression",
+                    "renders": renders,
+                    "warnings": ["stub identity renderer"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        print("stub Blender identity render complete")
+        return 0
     candidate = Path(request["candidate_dir"])
     candidate.mkdir(parents=True, exist_ok=True)
     if request.get("glb_path"):

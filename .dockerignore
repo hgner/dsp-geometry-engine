@@ -1,5 +1,7 @@
 # Keep the build context to exactly what the Dockerfile copies:
-# pyproject.toml, uv.lock, .python-version, README.md, src/.
+# pyproject.toml, uv.lock, .python-version, README.md, src/, and the license
+# set (LICENSE, NOTICE, LICENSES/) the image must redistribute. Nothing below
+# excludes those — do not add an exclusion that swallows them.
 .git
 .venv
 data

@@ -5,17 +5,21 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-DEFAULT_BLENDER_SHORTCUT = Path("C:/Users/hgner/Desktop/Blender 4.2.lnk")
+# Every default below is a guess at a stock Windows install location, derived from the
+# current user's own profile/APPDATA or from a checkout sitting next to this repository.
+# All are overridden by the matching BODYMESH_* variable; nothing here is required to
+# be correct — inspect_bodymesh_runtime reports whatever did not resolve.
+_APPDATA = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+_BLENDER_CONFIG = _APPDATA / "Blender Foundation" / "Blender" / "4.2"
+_SIBLING_ROOT = Path(__file__).resolve().parents[2].parent
+
+DEFAULT_BLENDER_SHORTCUT = Path.home() / "Desktop" / "Blender 4.2.lnk"
 DEFAULT_BLENDER_EXE = Path("C:/Program Files/Blender Foundation/Blender 4.2/blender.exe")
-DEFAULT_MPFB_ROOT = Path(
-    "C:/Users/hgner/AppData/Roaming/Blender Foundation/Blender/4.2/extensions/user_default/mpfb"
-)
-DEFAULT_MBLAB_ROOT = Path(
-    "C:/Users/hgner/AppData/Roaming/Blender Foundation/Blender/4.2/scripts/addons/MB-Lab-master"
-)
-DEFAULT_ENGINE_SKELETON_DIR = Path("C:/Users/hgner/hakantest/proje8/scripts/blender")
-DEFAULT_CHARACTER_BAKE_EXE = Path(
-    "C:/Users/hgner/hakantest/proje7-engine/build/windows-msvc-static-md-release/character_bake_cli.exe"
+DEFAULT_MPFB_ROOT = _BLENDER_CONFIG / "extensions" / "user_default" / "mpfb"
+DEFAULT_MBLAB_ROOT = _BLENDER_CONFIG / "scripts" / "addons" / "MB-Lab-master"
+DEFAULT_ENGINE_SKELETON_DIR = _SIBLING_ROOT / "proje8" / "scripts" / "blender"
+DEFAULT_CHARACTER_BAKE_EXE = (
+    _SIBLING_ROOT / "proje7-engine" / "build" / "windows-msvc-static-md-release" / "character_bake_cli.exe"
 )
 
 

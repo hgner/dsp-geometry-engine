@@ -98,6 +98,45 @@ class CandidateResult(_Schema):
     warnings: list[str] = Field(default_factory=list)
 
 
+class IdentityRenderAsset(_Schema):
+    asset_id: str
+    kind: Literal["closeup", "body"]
+    category: str
+    view: str
+    expression: str
+    lighting: str
+    path: str
+    relative_path: str
+    width: int
+    height: int
+    sha256: str
+
+
+class IdentityRenderSet(_Schema):
+    schema_version: Literal[1] = 1
+    preset: Literal["identity-v1"] = "identity-v1"
+    status: Literal["complete"] = "complete"
+    job_id: str
+    candidate_id: str
+    source_blend_path: str
+    source_blend_sha256: str
+    recipe_sha256: str
+    output_dir: str
+    manifest_path: str
+    renderer: str
+    blender_version: str
+    mpfb_version: str
+    device_requested: str
+    device_used: str
+    samples: int
+    seed: int
+    material_backend: str
+    expression_backend: str
+    duration_s: float
+    renders: list[IdentityRenderAsset]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class JobStatus(_Schema):
     job_id: str
     status: str

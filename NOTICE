@@ -1,0 +1,33 @@
+DSP-Geometry-Engine
+Copyright 2026 hgner <hgner09@gmail.com>
+
+This product includes software developed by hgner.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), with one carve-out:
+everything under src/bodymesh_server/blender_scripts/ is licensed GPL-3.0-or-later
+(see LICENSES/GPL-3.0-or-later.txt). Those files run inside Blender and use MPFB's
+GPL service API; they are separate OS processes that exchange only JSON and paths
+with the Apache-2.0 host. LICENSES/README.md carries the full map.
+
+Neither Blender nor MPFB is bundled here or in any distribution built from this
+repository. Both are installed separately by the operator and remain under their
+own upstream GPL terms. MB-LAB is reported by environment discovery but is never
+invoked.
+
+Third-party runtime dependencies (installed from PyPI, not vendored here) keep
+their own licenses. Two are worth naming explicitly:
+
+  matplotlib — "License agreement for matplotlib versions 1.3.0 and later",
+  a Python Software Foundation License derivative (PyPI classifier:
+  License :: OSI Approved :: Python Software Foundation License). Its own
+  LICENSE, LICENSE_DEJAVU and LICENSE_STIX files ship inside the installed
+  distribution.
+
+  certifi — MPL-2.0. It carries the Mozilla CA root bundle and is the only
+  weak-copyleft item in the closure. Of the 62 distributions in the current
+  locked environment (57 runtime plus dev tooling, this project included),
+  certifi is the sole non-permissive one; the remaining 60 third-party
+  distributions are MIT/BSD/Apache/PSF/ISC-family. Established by scanning
+  installed distribution metadata, not by assumption.
+
+No other dependency imposes a reciprocal obligation on this project's own source.

@@ -1,4 +1,23 @@
-﻿All designs verified against the actual repo files (`toolsets/__init__.py`, `geometry.py`, `imaging.py`, `schemas.py`, `transforms.py`, `filters.py`, `ply.py`, `lbs.py`, `image2d.py`, `plots.py`, `tests/synth.py`, `tests/test_server.py`, `config.py`, `cxx_bridge/engine_cli.py`, `pyproject.toml`). Golden numbers I could check by hand (Erlang-B/C, M/D/1, SRTF/priority waits, Silberschatz paging counts, clock eviction, Bode margins, 2nd-order step metrics, Fourier square-wave coefficients, residues) are correct **except** the ones flagged below.
+> **HISTORICAL — superseded design-review notes, written 2026-07-11, banner added 2026-07-31.**
+>
+> This is a pre-implementation adversarial review of the course-pack designs in this directory,
+> retained for provenance only. It is **not** a description of the shipped system and **must not**
+> be read as a live finding list, an open bug backlog, or a security advisory. Every blocker and
+> major item below was triaged before the packs shipped; the headings ("Blockers") describe the
+> state of a design document in July 2026, not the state of the code today.
+>
+> In particular, **item 7 — `predict(model_path=...)` as arbitrary code execution — is RESOLVED.**
+> `_predict` (`src/dsp_server/toolsets/ml.py`, from line 753) resolves the supplied path and refuses
+> anything outside the server's `data/models/` directory, then refuses any model that lacks the
+> `.meta.json` sidecar this server itself wrote — both checks run before joblib is allowed to
+> unpickle. `tests/test_ml.py::test_predict_security_rejections` (line 239) covers the outside-path
+> rejection, the missing-sidecar rejection, and the missing-file case. llms.txt rule 16 states the
+> same constraint.
+>
+> The shipped code, its docstrings, `llms.txt`, and the test suite are the only ground truth. Names
+> and signatures proposed here changed during implementation.
+
+All designs verified against the actual repo files (`toolsets/__init__.py`, `geometry.py`, `imaging.py`, `schemas.py`, `transforms.py`, `filters.py`, `ply.py`, `lbs.py`, `image2d.py`, `plots.py`, `tests/synth.py`, `tests/test_server.py`, `config.py`, `cxx_bridge/engine_cli.py`, `pyproject.toml`). Golden numbers I could check by hand (Erlang-B/C, M/D/1, SRTF/priority waits, Silberschatz paging counts, clock eviction, Bode margins, 2nd-order step metrics, Fourier square-wave coefficients, residues) are correct **except** the ones flagged below.
 
 # Adversarial review findings
 
@@ -18,7 +37,9 @@
 
 **6. [stats, MAJOR] `compare_dump_ripples` sector pairing is statistically invalid twice over.** (a) `sector_profiles` (transforms.py:192) silently **drops** empty sectors and returns a bare `list[Signal1D]` with no sector identity — positional pairing of `sectors_a[k]` with `sectors_b[k]` misaligns as soon as either side drops a wedge. (b) `fit_axis` sets `u = vt[1]` with no angular canonicalization, so θ=0 is an arbitrary direction *per dump* — sector k of dump A does not correspond angularly to sector k of dump B even at equal counts. The paired Wilcoxon is pairing noise. Fix: add a variant returning `list[tuple[int, Signal1D]]` (sector index kept), pair only shared indices; and for cross-dump comparison either reuse side A's fitted frame for both point sets (valid when comparing the same joint) or downgrade to an unpaired test (`mannwhitneyu`) with the docstring saying why.
 
-**7. [ml, MAJOR — security] `predict(model_path=...)` is arbitrary code execution by design.** joblib deserialization executes pickled code; the only mitigation is an llms.txt sentence, which is advice, not enforcement, and the tool accepts any path (general-purpose inputs make this reachable from any client). Fix: `Path(model_path).resolve()` must be inside `ctx.models_dir` (or `data/`), AND the `.meta.json` sidecar this server wrote must exist next to it; otherwise ToolError listing `data/models/` contents. Cheap, preserves the round-trip test.
+**7. [ml, MAJOR — security] `predict(model_path=...)` is arbitrary code execution by design.**
+*(RESOLVED before release — the fix proposed here is exactly what shipped; see the banner at the top
+of this file. Retained only to record why `_predict` is written the way it is.)* joblib deserialization executes pickled code; the only mitigation is an llms.txt sentence, which is advice, not enforcement, and the tool accepts any path (general-purpose inputs make this reachable from any client). Fix: `Path(model_path).resolve()` must be inside `ctx.models_dir` (or `data/`), AND the `.meta.json` sidecar this server wrote must exist next to it; otherwise ToolError listing `data/models/` contents. Cheap, preserves the round-trip test.
 
 **8. [engmath, MAJOR — security/DoS] The parse gates don't stop evaluation-time blowups.** `9**9**9**9` (11 chars, passes every gate) and `gamma(10**7)` (gamma of an Integer evaluates to an exact factorial) hang or OOM the server at `parse_expr`/`doit` time — the 800-char cap and the "mode=numeric escape hatch" don't help because the hang happens before any mode logic. Fix: token-gate integer literals (reject any bare integer > 1e6 and any `**` whose right operand is itself a `**` chain or > 64), and evaluate `gamma`/`factorial`-family calls only via `evalf` on float args.
 

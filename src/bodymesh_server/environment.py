@@ -85,7 +85,12 @@ def _mpfb_info() -> AddonInfo:
         version=version,
         path=str(root),
         supported=bool(root.is_dir() and version and version.startswith("2.0.")),
-        note="Primary backend; generated core meshes are unrestricted under MPFB's asset terms.",
+        note=(
+            "Primary backend: the only body generator this MCP invokes, driven headlessly through "
+            "the confined Blender worker. Licensing of MPFB, its bundled assets, and anything "
+            "generated with them is the operator's to determine from the installed extension's own "
+            "terms; this server makes no claim about them."
+        ),
     )
 
 

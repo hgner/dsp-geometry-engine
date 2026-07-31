@@ -1,4 +1,17 @@
-﻿# Design — shared tabular loader + stats (ELE320) pack + ml (ELE489) pack
+> **HISTORICAL — superseded design notes, written 2026-07-11, banner added 2026-07-31.**
+>
+> A pre-implementation design document for the `stats` and `ml` packs, which have since shipped;
+> retained for provenance only. It is **not** a description of the shipped system and **must not**
+> be read as a live specification, finding list, or backlog. Tool names, signatures, schema fields,
+> and constants proposed here were revised during implementation. Most importantly for anyone
+> reading the `ml` section: the `predict()` deserialization hazard raised as item 7 of
+> `course-packs-critique.md` was **resolved** — `_predict` in `src/dsp_server/toolsets/ml.py`
+> path-confines the model to `data/models/` and requires the server-written `.meta.json` sidecar
+> before joblib unpickles anything, with `tests/test_ml.py::test_predict_security_rejections`
+> covering the rejection paths. The shipped code, its docstrings, `llms.txt`, and the test suite are
+> the only ground truth.
+
+# Design — shared tabular loader + stats (ELE320) pack + ml (ELE489) pack
 
 Grounded against the frozen architecture: `toolsets/__init__.py` (AppContext + TOOLSETS registry), the `geometry.py` pattern (module-level `_impl(ctx, ...)` + thin `@mcp.tool()` closures, ToolError never-raise, histogram-carrying hints), `schemas.py` (`_SchemaBase` with round6 + `extra="forbid"`), `engine/transforms.py` (`Signal1D`, `extract_forearm_signal`, `sector_profiles`), `engine/filters.py` (`detrend_poly`, `apply_highpass`, `band_energy`, `spectral_peaks`), `engine/ply.py` (`write_engine_ply`, `load_dump_cached`, `load_meta`), `plots.py` (Agg-only, Path-returning), `tests/synth.py` (`make_cylinder`, `STUB_BONE_MAP`), and the DEVELOPMENT.md 5-step checklist.
 
@@ -275,4 +288,4 @@ Hand-rolled blobs (no `sklearn.datasets`, keeps golden numbers version-stable): 
 7. **pyproject**: `scikit-learn>=1.5`, `joblib>=1.4`. Pure wheels on bookworm-slim, no GPU — cloud-safe.
 8. **Docstring discipline**: each of the 10 tools gets a one-paragraph contract docstring in the `register()` closures, mirroring geometry.py's density (units, defaults, failure hints named).
 
-Key files for the implementer: `c:\Users\hgner\hakantest\proje10\src\dsp_server\toolsets\geometry.py` (pattern), `c:\Users\hgner\hakantest\proje10\src\dsp_server\schemas.py`, `c:\Users\hgner\hakantest\proje10\src\dsp_server\engine\transforms.py`, `c:\Users\hgner\hakantest\proje10\src\dsp_server\engine\filters.py`, `c:\Users\hgner\hakantest\proje10\src\dsp_server\engine\ply.py`, `c:\Users\hgner\hakantest\proje10\tests\synth.py`, `c:\Users\hgner\hakantest\proje10\docs\DEVELOPMENT.md`.
+Key files for the implementer (repo-relative): `src/dsp_server/toolsets/geometry.py` (pattern), `src/dsp_server/schemas.py`, `src/dsp_server/engine/transforms.py`, `src/dsp_server/engine/filters.py`, `src/dsp_server/engine/ply.py`, `tests/synth.py`, `docs/DEVELOPMENT.md`.

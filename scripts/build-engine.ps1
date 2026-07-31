@@ -12,9 +12,14 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Both fallbacks are checkouts sitting next to this repository's own directory,
+# derived from this script's location. Override either when they live elsewhere.
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$siblingRoot = Split-Path -Parent $repoRoot
+
 $delegate = $env:DSP_ENGINE_BUILD_SCRIPT
 if ([string]::IsNullOrWhiteSpace($delegate)) {
-  $delegate = "C:\Users\hgner\hakantest\proje8\scripts\build-engine-cli.ps1"
+  $delegate = Join-Path $siblingRoot "proje8\scripts\build-engine-cli.ps1"
 }
 if (-not (Test-Path -LiteralPath $delegate)) {
   Write-Output "BUILD_FAIL: delegate build script not found: $delegate (set DSP_ENGINE_BUILD_SCRIPT)"
@@ -23,7 +28,7 @@ if (-not (Test-Path -LiteralPath $delegate)) {
 
 $repoDir = $env:DSP_ENGINE_ROOT
 if ([string]::IsNullOrWhiteSpace($repoDir)) {
-  $repoDir = "C:\Users\hgner\hakantest\proje7-engine"
+  $repoDir = Join-Path $siblingRoot "proje7-engine"
 }
 
 if ($Preset -eq "windows-msvc-rtx") {

@@ -1,15 +1,19 @@
 # Local container smoke (plan M9): docker compose up, then handshake against
-# http://localhost:8000/mcp. ./data is the same telemetry directory the local
+# http://127.0.0.1:8000/mcp. ./data is the same telemetry directory the local
 # stdio server uses, so dumps produced on this machine are visible in-container.
 services:
   dsp:
     build: .
     ports:
-      - "8000:8000"
+      # Loopback-only publish: the container binds 0.0.0.0 inside its own network
+      # namespace (DSP_HOST is set in the Dockerfile), but the host exposes the
+      # port to this machine alone. Widen this only behind real platform auth.
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
     environment:
-      # Minimum-viable auth for the HTTP transport. Empty = auth disabled (fine on
-      # localhost; NEVER expose the port publicly without a token or platform auth).
-      # Example: DSP_AUTH_TOKEN: "change-me-long-random-string"
-      DSP_AUTH_TOKEN: ""
+      # Minimum-viable auth for the HTTP transport, and mandatory: `docker compose up`
+      # aborts with "set a token" if DSP_AUTH_TOKEN is unset or empty in the
+      # environment/.env, and the server itself refuses to start without it. Use a long
+      # random string, e.g. `DSP_AUTH_TOKEN=$(openssl rand -hex 32) docker compose up`.
+      DSP_AUTH_TOKEN: ${DSP_AUTH_TOKEN:?set a token}

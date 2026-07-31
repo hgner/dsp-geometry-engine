@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from bodymesh_server import blender_bridge, jobs
+from bodymesh_server import blender_bridge, identity_render, jobs, tool_cli
 from bodymesh_server import engine_contract as contract_module
 from bodymesh_server.engine_contract import EngineContractError, validate_engine_contract
 from bodymesh_server.environment import inspect_runtime
@@ -22,6 +22,7 @@ from bodymesh_server.tools import (
     _inspect_bodymesh_runtime,
     _list_bodymesh_parameters,
     _prepare_bodymesh_job,
+    _render_identity_set,
 )
 from dsp_server.engine.ply import load_meta, read_engine_ply
 
@@ -128,6 +129,7 @@ def test_separate_server_registers_expected_tools(bodymesh_env):
         "prepare_bodymesh_job",
         "create_body_mesh",
         "get_bodymesh_job",
+        "render_identity_set",
     }
     tools = asyncio.run(create_server().list_tools())
     prepare = next(tool for tool in tools if tool.name == "prepare_bodymesh_job")
@@ -246,6 +248,168 @@ def test_stub_blender_candidate_and_dsp_ply_handoff(bodymesh_env):
     assert mpfb_payload["status"] == "complete"
     assert "engine_glb_path" not in mpfb_payload
     assert final_payload == result.model_dump(mode="json")
+
+
+def test_identity_render_set_is_versioned_validated_and_idempotent(bodymesh_env):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="female")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity")
+    source = Path(candidate.blend_path)
+    source_before = source.read_bytes()
+
+    result = identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+
+    assert result.schema_version == 1
+    assert result.preset == "identity-v1"
+    assert result.status == "complete"
+    assert result.candidate_id == candidate.candidate_id
+    assert len(result.recipe_sha256) == 64
+    assert result.blender_version == "stub-blender-4.2"
+    assert result.mpfb_version == "stub-mpfb-2.0"
+    assert result.device_used == "STUB"
+    assert result.expression_backend == "stub-expression"
+    assert len(result.renders) == 11
+    assert [asset.kind for asset in result.renders] == ["closeup"] * 8 + ["body"] * 3
+    assert [asset.asset_id for asset in result.renders[-3:]] == [
+        "body-front",
+        "body-three-quarter",
+        "body-side",
+    ]
+    assert len({asset.relative_path for asset in result.renders}) == 11
+    assert all(Path(asset.path).is_file() and len(asset.sha256) == 64 for asset in result.renders)
+    assert source.read_bytes() == source_before
+    manifest = Path(result.manifest_path)
+    assert manifest.parent == Path(candidate.candidate_dir) / "identity" / "identity-v1"
+    assert json.loads(manifest.read_text(encoding="utf-8")) == result.model_dump(mode="json")
+    manifest_mtime = manifest.stat().st_mtime_ns
+
+    cached = identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+
+    assert cached == result
+    assert manifest.stat().st_mtime_ns == manifest_mtime
+
+
+def test_identity_render_rebuilds_a_semantically_tampered_cache(bodymesh_env):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="female")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity-cache")
+    result = identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+    manifest = Path(result.manifest_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["seed"] = 1
+    payload["renders"][0]["lighting"] = "tampered"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    rebuilt = identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+
+    assert rebuilt.seed == identity_render.SEED
+    assert rebuilt.renders[0].lighting == "key-left"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["seed"] == identity_render.SEED
+
+
+def test_identity_render_rejects_mismatched_candidate_result(bodymesh_env):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="female")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity-result")
+    result_path = Path(candidate.candidate_dir) / "result.json"
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["job_id"] = "different-job"
+    result_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="candidate result job mismatch"):
+        identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+
+
+def test_identity_render_rejects_linked_identity_root(bodymesh_env, tmp_path: Path):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="female")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity-link")
+    outside = tmp_path / "outside-identity"
+    outside.mkdir()
+    identity_root = Path(candidate.candidate_dir) / "identity"
+    try:
+        identity_root.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(ValueError, match="may not be a symlink or junction"):
+        identity_render.render_identity_set(prepared.job_id, candidate.candidate_id)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_identity_promotion_restores_old_final_on_rename_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    final_dir = tmp_path / "identity-v1"
+    stage_dir = tmp_path / ".identity-v1.stage.tmp"
+    final_dir.mkdir()
+    stage_dir.mkdir()
+    (final_dir / "old.txt").write_text("old", encoding="utf-8")
+    (stage_dir / "new.txt").write_text("new", encoding="utf-8")
+    original_replace = Path.replace
+
+    def fail_stage_replace(path: Path, target: Path) -> Path:
+        if path == stage_dir and Path(target) == final_dir:
+            raise OSError("forced promotion failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_stage_replace)
+
+    with pytest.raises(OSError, match="forced promotion failure"):
+        identity_render._promote(stage_dir, final_dir)
+
+    assert (final_dir / "old.txt").read_text(encoding="utf-8") == "old"
+    assert (stage_dir / "new.txt").read_text(encoding="utf-8") == "new"
+    assert list(tmp_path.glob(".identity-v1.*.backup")) == []
+
+
+def test_identity_promotion_recovers_backup_after_interrupted_rename(tmp_path: Path):
+    final_dir = tmp_path / "identity-v1"
+    backup = tmp_path / ".identity-v1.interrupted.backup"
+    backup.mkdir()
+    (backup / "old.txt").write_text("old", encoding="utf-8")
+
+    identity_render._recover_promotion(final_dir)
+
+    assert (final_dir / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not backup.exists()
+
+
+def test_identity_render_tool_and_cli_surface_structured_errors(bodymesh_env):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="male")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity-cli")
+
+    text, code = tool_cli.run_tool(
+        "render_identity_set",
+        {"job_id": prepared.job_id, "candidate_id": candidate.candidate_id},
+    )
+    assert code == 0
+    assert json.loads(text)["preset"] == "identity-v1"
+
+    payload = json.loads(_render_identity_set(prepared.job_id, "missing-candidate"))
+    assert "error" in payload
+    assert "completed candidate result not found" in payload["error"]
+
+    text, code = tool_cli.run_tool(
+        "render_identity_set",
+        {"job_id": prepared.job_id, "candidate_id": "missing-candidate"},
+    )
+    assert code == 1
+    assert "completed candidate result not found" in json.loads(text)["error"]
+
+
+def test_identity_render_uses_shared_cross_process_lock(bodymesh_env):
+    front = _make_image(bodymesh_env["inbox"] / "front.png")
+    prepared = jobs.prepare_job(front_image=str(front), rig_sex="female")
+    candidate = blender_bridge.create_candidate(job_id=prepared.job_id, candidate_label="identity-lock")
+
+    with InterprocessLock(bodymesh_env["data"] / ".blender-worker.lock"):
+        payload = json.loads(_render_identity_set(prepared.job_id, candidate.candidate_id))
+
+    assert "another Blender body-mesh job is already running" in payload["error"]
 
 
 def test_engine_failure_persists_authoritative_candidate_result(bodymesh_env, monkeypatch):

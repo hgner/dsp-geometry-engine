@@ -1,0 +1,5 @@
+The full, unmodified Apache License 2.0 text for this project lives in the
+repository root as `LICENSE`, so there is exactly one authoritative copy.
+It is reproduced here by reference only — see `../LICENSE`.
+
+Canonical upstream text: https://www.apache.org/licenses/LICENSE-2.0.txt

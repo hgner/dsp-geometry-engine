@@ -1,7 +1,9 @@
 """Geometry tool pack (ELE407 1-D lane): engine dumps -> axial signals -> verdicts.
 
-Five tools: extract_mesh_telemetry (runs the engine via the bridge), and four
-analysis tools that operate on PLY dumps already on disk. Every tool returns a
+Seven tools: extract_mesh_telemetry (the one tool in the whole server that runs
+the engine via the bridge), and six analysis tools — analyze_corrugation,
+compare_geometry_signals, localize_defect, lbs_differential, score_bake,
+analyze_mesh_topology — that operate on PLY dumps already on disk. Every tool returns a
 pydantic model's ``model_dump_json()`` — on failure a :class:`ToolError` whose
 hint carries the dump's per-joint vertex histogram whenever joint selection was
 the problem. Nothing here raises across the MCP boundary and no numpy array ever

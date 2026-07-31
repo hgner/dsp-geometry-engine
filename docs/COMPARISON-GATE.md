@@ -23,7 +23,7 @@ the MCP boundary (llms.txt rule 11); every tool returns a scalar/verdict + an on
 **Invoking from a non-MCP consumer.** A client that spawns helpers and parses JSON (rather than speaking
 MCP) runs one gate tool via the `dsp-tool` CLI: `uv run dsp-tool <tool> --args-json '<json>'` prints the
 tool's JSON on stdout (exit 0), or an `{"error": ...}` object + non-zero exit on a bad tool/args. It
-dispatches to the same `_impl` functions the MCP server registers, so CLI and MCP can't drift.
+dispatches to the same `_impl` functions `dsp-geometry-engine` registers, so CLI and MCP can't drift.
 
 ---
 

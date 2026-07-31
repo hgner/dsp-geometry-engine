@@ -188,8 +188,8 @@ not neural-SOTA):
   uses a FIXED mask region — pair with `verify_motion_consistency` if the object moves a lot.
 
 Consumption model: the video pipeline (proje8) enables `DSP_TOOLSETS=video,imaging,geometry,perceptual`
-and calls these over MCP against its generated-vs-reference frames — this server is the measurement
-product, the pipeline is the client. (proje8 already has torch/GPU, so a true neural LPIPS/DINOv2 gate
+and calls these over MCP against its generated-vs-reference frames — `dsp-geometry-engine` is the
+measurement product, and the pipeline is the client. (proje8 already has torch/GPU, so a true neural LPIPS/DINOv2 gate
 belongs there, calling these math + classical-perceptual gates for the rigid checks.) The full
 integration contract — how the per-tool verdicts COMBINE into one clip pass/fail, plus the
 multi-gate attribution rules — is `docs/COMPARISON-GATE.md` (proven end-to-end in
@@ -254,7 +254,8 @@ dumps addressable as `column="<joint>[:posed|rest]"`:
 
 ## For a fresh engine session
 
-Register the server (it's already wired at user + project scope; new sessions see all 49 tools), set
+Ensure `dsp-geometry-engine` is registered (it is already wired at user + project scope; new sessions
+see all 49 DSP tools), set
 `DSP_TOOLSETS` to the lanes your task needs, and start from the symptom index above. The corrugation RCA
 is *closed* (verdict: source Blender bake, not the engine — see `llms.txt` rule 8), so a new mesh
 investigation begins with `analyze_mesh_topology` + `lbs_differential` to classify a fresh defect before

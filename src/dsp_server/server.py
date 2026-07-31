@@ -1,12 +1,13 @@
 """MCP server entry point: a thin loader over the toolset registry.
 
 Transport is env-selected (``DSP_TRANSPORT``): ``stdio`` for Claude Code/Desktop,
-``streamable-http`` for remote/cloud clients. With ``DSP_AUTH_TOKEN`` set on the
-HTTP transport, a static bearer token is enforced by wrapping FastMCP's Starlette
-app in a tiny ASGI middleware and serving it with uvicorn ourselves (FastMCP
-1.28's own ``run(transport="streamable-http")`` uses the same uvicorn +
-``streamable_http_app()`` pair internally, so behavior is identical minus the
-401 gate). This is minimum-viable auth — front it with the platform's real auth
+``streamable-http`` for remote/cloud clients. The HTTP transport is fail-closed —
+it requires ``DSP_AUTH_TOKEN`` and refuses to start without it unless the operator
+explicitly sets ``DSP_ALLOW_INSECURE_HTTP=1``. The token is enforced by wrapping
+FastMCP's Starlette app in a tiny ASGI middleware and serving it with uvicorn
+ourselves (FastMCP 1.28's own ``run(transport="streamable-http")`` uses the same
+uvicorn + ``streamable_http_app()`` pair internally, so behavior is identical minus
+the 401 gate). This is minimum-viable auth — front it with the platform's real auth
 (ALB / API Gateway authorizer) in production.
 
 All logging goes to stderr: stdout is MCP JSON-RPC and must stay clean.
@@ -73,6 +74,32 @@ class _BearerAuthMiddleware:
         await self._app(scope, receive, send)
 
 
+def _resolve_http_auth() -> str | None:
+    """Decide how the streamable-HTTP transport authenticates, or refuse to serve.
+
+    Returns the bearer token to enforce, or ``None`` when the operator has explicitly
+    accepted an unauthenticated port via ``DSP_ALLOW_INSECURE_HTTP=1``. A missing token
+    is otherwise fatal: this branch used to log a warning and serve every tool anyway
+    to anyone who could reach the port.
+    """
+    token = config.auth_token()
+    if token is not None:
+        return token
+    if config.allow_insecure_http():
+        logger.warning(
+            "DSP_ALLOW_INSECURE_HTTP=1 — serving streamable-http with NO authentication on %s:%d; "
+            "every tool is callable by anyone who can reach that address",
+            config.http_host(),
+            config.http_port(),
+        )
+        return None
+    raise SystemExit(
+        "refusing to serve DSP_TRANSPORT=streamable-http without authentication: set "
+        "DSP_AUTH_TOKEN to a long random string, or set DSP_ALLOW_INSECURE_HTTP=1 to "
+        "accept an unauthenticated port (loopback-only development)."
+    )
+
+
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     config.ensure_data_dirs()
@@ -85,9 +112,8 @@ def main() -> None:
     if transport != "streamable-http":
         raise SystemExit(f"unknown DSP_TRANSPORT {transport!r} (expected stdio|streamable-http)")
 
-    token = config.auth_token()
+    token = _resolve_http_auth()  # raises SystemExit unless a token or the escape hatch is set
     if token is None:
-        logger.warning("streamable-http without DSP_AUTH_TOKEN — do not expose this port without real auth")
         mcp.run(transport="streamable-http")
         return
 

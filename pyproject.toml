@@ -1,9 +1,14 @@
 [project]
 name = "dsp-geometry-engine"
 version = "0.1.0"
-description = "MCP server: engine vertex dumps -> 1D signals -> FFT/roughness JSON (forearm corrugation RCA)"
+description = "Independent MCP servers for engine DSP analysis and local Blender/MPFB body-mesh generation"
 readme = "README.md"
-license-files = ["LICENSES/GPL-3.0-or-later.txt", "LICENSES/README.md"]
+# PEP 639 SPDX expression: the tree is Apache-2.0 except src/bodymesh_server/blender_scripts/**,
+# which is GPL-3.0-or-later (Blender-side workers using MPFB's GPL API). See LICENSES/README.md.
+license = "Apache-2.0 AND GPL-3.0-or-later"
+# NOTICE is included because Apache-2.0 section 4(d) requires redistributions to carry
+# the attribution notices; a wheel that omits it is a distribution without them.
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 authors = [
     { name = "hgner", email = "hgner09@gmail.com" }
 ]
@@ -25,6 +30,7 @@ dependencies = [
 dsp-server = "dsp_server.server:main"
 dsp-tool = "dsp_server.tool_cli:main"
 bodymesh-server = "bodymesh_server.server:main"
+bodymesh-tool = "bodymesh_server.tool_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]

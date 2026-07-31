@@ -1,4 +1,15 @@
-﻿I have all the grounding I need (registry, geometry/imaging tool pattern, schemas base, filters/transforms reuse surface, plots, synth golden cylinder, DEVELOPMENT.md checklist, pyproject). Here is the complete design.
+> **HISTORICAL — superseded design notes, written 2026-07-11, banner added 2026-07-31.**
+>
+> A pre-implementation design document for the `engmath` and `systems` packs, which have since
+> shipped; retained for provenance only. It is **not** a description of the shipped system and
+> **must not** be read as a live specification, finding list, or backlog. Module names in particular
+> did not survive: the proposed `engine/symbolic.py` and `engine/linalg.py` shipped as a single
+> `engine/symmath.py`, and the adversarial review in `course-packs-critique.md` (itself historical)
+> corrected several signatures and golden numbers before any of it was written — including the
+> `predict()` deserialization item, which was resolved in code before release. The shipped code, its
+> docstrings, `llms.txt`, and the test suite are the only ground truth.
+
+I have all the grounding I need (registry, geometry/imaging tool pattern, schemas base, filters/transforms reuse surface, plots, synth golden cylinder, DEVELOPMENT.md checklist, pyproject). Here is the complete design.
 
 ---
 
@@ -202,4 +213,4 @@ convolve_uniform(a, b, dt, mode: str, scale: str, normalize: bool) -> tuple[np.n
 - README tool table + `DSP_TOOLSETS` docs mention the two packs; llms.txt rules 12–13 above (renumber against whatever the stats/imaging/ml designers append — coordinate final numbering at implementation time).
 - Coordination requests to the stats designer (tabular.py owner): `load_matrix(path, key=None) -> np.ndarray`, `save_series(path, **arrays) -> Path`, and dt discovery convention for `.npz` (reserved key `dt`) — sampling_check/convolve/fourier_series depend on those three.
 
-Key file paths: `c:\Users\hgner\hakantest\proje10\src\dsp_server\engine\symbolic.py`, `...\engine\linalg.py`, `...\engine\ltisys.py` (new); `...\toolsets\engmath.py`, `...\toolsets\systems.py` (new); `...\engine\filters.py` (+`fourier_coefficients`), `...\src\dsp_server\plots.py` (+4 helpers), `...\src\dsp_server\schemas.py` (+12 models), `...\tests\test_engmath.py`, `...\tests\test_systems.py`, `...\pyproject.toml`, `...\llms.txt`.
+Key file paths (repo-relative, as proposed — see the banner: `symbolic.py`/`linalg.py` shipped merged as `engine/symmath.py`): `src/dsp_server/engine/symbolic.py`, `src/dsp_server/engine/linalg.py`, `src/dsp_server/engine/ltisys.py` (new); `src/dsp_server/toolsets/engmath.py`, `src/dsp_server/toolsets/systems.py` (new); `src/dsp_server/engine/filters.py` (+`fourier_coefficients`), `src/dsp_server/plots.py` (+4 helpers), `src/dsp_server/schemas.py` (+12 models), `tests/test_engmath.py`, `tests/test_systems.py`, `pyproject.toml`, `llms.txt`.

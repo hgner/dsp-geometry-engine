@@ -1,4 +1,14 @@
-﻿# Pack designs: imaging v2 (ELE490), netqueue (ELE412), os (Tanenbaum)
+> **HISTORICAL — superseded design notes, written 2026-07-11, banner added 2026-07-31.**
+>
+> A pre-implementation design document for course packs that have since shipped, retained for
+> provenance only. It is **not** a description of the shipped system and **must not** be read as a
+> live specification, finding list, or backlog. Tool names, signatures, schema fields, and file
+> layouts proposed here were revised during implementation, and the adversarial review in
+> `course-packs-critique.md` (itself historical) changed several of them — including the `predict()`
+> deserialization item, which was resolved in code before release. The shipped code, its docstrings,
+> `llms.txt`, and the test suite are the only ground truth.
+
+# Pack designs: imaging v2 (ELE490), netqueue (ELE412), os (Tanenbaum)
 
 Grounded against the frozen architecture: `toolsets/__init__.py` (AppContext/TOOLSETS), the `_impl` + closure + `ToolError` pattern in `geometry.py`/`imaging.py`, `_SchemaBase` (extra="forbid", round6) in `schemas.py`, `engine/image2d.py`, `plots.py` (Agg-locked), `tests/synth.py`, and the 5-step checklist in `docs/DEVELOPMENT.md`.
 
