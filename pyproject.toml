@@ -38,11 +38,17 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    # Every OS/version below is green in the ci.yml matrix; nothing is claimed on
+    # faith. `bodymesh-server` still needs Windows (its path defaults and the
+    # Blender/MPFB lane), but `dsp-server` — 49 of the 55 tools — is pure Python
+    # and runs on all three. Widen ci.yml first, then this list.
+    "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Image Processing",
