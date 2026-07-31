@@ -1,0 +1,358 @@
+# Release: build and publish `dsp-geometry-engine` to PyPI from a pushed `v*` tag,
+# using PyPI Trusted Publishing (OIDC) so no API token is ever stored in this repo.
+# `workflow_dispatch` runs the identical pipeline against TestPyPI, so a release can
+# be rehearsed end-to-end before a tag is ever cut. Owner-side PyPI setup (the
+# "pending publisher" that has to exist before the very first run) is in
+# docs/DEVELOPMENT.md — this workflow cannot bootstrap it.
+#
+# Order is deliberate: verify -> test -> build -> publish -> GitHub Release. The tag
+# is checked against pyproject.toml BEFORE anything is built, because a version
+# published under the wrong number burns that number on PyPI permanently (yanking
+# does not free it for re-upload).
+#
+# The test job duplicates ci.yml instead of calling it: ci.yml has no
+# `workflow_call` trigger, and adding one is outside this change. Keep the two in
+# sync — if ci.yml's steps change, change them here too. The docker job is not
+# duplicated; the wheel is what ships, and ci.yml keeps the Dockerfile honest on
+# every push to main.
+name: release
+
+on:
+  push:
+    tags: ["v*"]  # v0.1.0, v1.2.3, v1.2.3rc1 — must equal "v" + [project].version
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to (pypi only runs from a v* tag)"
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+# Read-only by default. The two jobs that need more (OIDC minting, Release
+# creation) widen it themselves; a workflow-level `id-token: write` would hand an
+# OIDC token to every job, including ones that run test code.
+permissions:
+  contents: read
+
+# One release at a time per ref. Uploads are not transactional: two runs racing on
+# the same version produce one success and one confusing 400. Never cancel a run
+# mid-publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify version and target
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      target: ${{ steps.resolve.outputs.target }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2  # setup-uv publishes no major-alias tag (no refs/tags/v8)
+        with:
+          enable-cache: true
+
+      - name: Resolve target and check tag against pyproject version
+        id: resolve
+        env:
+          # Ref names reach the runner as data, so they go through the environment
+          # rather than being interpolated into the script body.
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          # --frozen: read [project].version out of pyproject.toml, never re-lock.
+          version="$(uv version --short --frozen)"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            target="$INPUT_TARGET"
+          else
+            target="pypi"
+          fi
+
+          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "v${version}" ]; then
+            echo "::error::Tag ${REF_NAME} does not match pyproject.toml version ${version}." \
+                 "Expected tag v${version}. Delete the tag, fix one of the two, re-tag." \
+                 "Nothing was built or uploaded."
+            exit 1
+          fi
+
+          if [ "$target" = "pypi" ] && [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Refusing to publish to PyPI from ${REF_TYPE} '${REF_NAME}'." \
+                 "Real releases run from a v<version> tag (you can also dispatch this workflow" \
+                 "with the tag selected as the ref). Use target=testpypi to rehearse."
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+          echo "Releasing \`${version}\` to **${target}** from ${REF_TYPE} \`${REF_NAME}\`." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2  # setup-uv publishes no major-alias tag (no refs/tags/v8)
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Tests
+        run: uv run pytest
+
+  build:
+    name: Build and smoke-test distributions
+    needs: [verify, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2  # setup-uv publishes no major-alias tag (no refs/tags/v8)
+        with:
+          enable-cache: true
+
+      - name: Build sdist and wheel
+        run: uv build --out-dir dist
+
+      - name: Check artifact names carry the verified version
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          # The distribution name normalizes to dsp_geometry_engine (PEP 625/427).
+          test -f "dist/dsp_geometry_engine-${VERSION}.tar.gz"
+          test -f "dist/dsp_geometry_engine-${VERSION}-py3-none-any.whl"
+
+      - name: Check distribution metadata
+        # `twine check --strict` is the closest local proxy for "PyPI will accept
+        # this"; --strict makes a long_description (README) that does not render
+        # a failure instead of a warning, so a bad README cannot ship a broken
+        # project page.
+        #
+        # The second half is hand-rolled because nothing else enforces it. This
+        # project declares a PEP 639 SPDX `license` expression, so a `License ::`
+        # trove classifier must never appear — but hatchling, `packaging`, and
+        # `twine check --strict` all accept a distribution carrying BOTH (verified
+        # by building one). Warehouse only rejects the legacy `License:` field
+        # against `License-Expression`, so that mistake would upload silently and
+        # be frozen into the published metadata. This step is the only thing that
+        # catches it.
+        run: |
+          set -euo pipefail
+          uv run --no-project --python 3.12 --with twine twine check --strict dist/*
+          uv run --no-project --python 3.12 python - <<'PY'
+          import pathlib
+          import tarfile
+          import zipfile
+
+          whl = next(pathlib.Path("dist").glob("*.whl"))
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          zf = zipfile.ZipFile(whl)
+          tf = tarfile.open(sdist)
+          blobs = {
+              whl.name: zf.read(
+                  next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
+              ).decode("utf-8"),
+              sdist.name: tf.extractfile(
+                  next(
+                      m
+                      for m in tf.getmembers()
+                      if m.name.count("/") == 1 and m.name.endswith("/PKG-INFO")
+                  )
+              )
+              .read()
+              .decode("utf-8"),
+          }
+          for label, blob in blobs.items():
+              head = blob.split("\n\n", 1)[0].splitlines()
+              bad = [h for h in head if h.startswith("Classifier: License ::")]
+              if bad:
+                  raise SystemExit(f"{label}: PEP 639 violation, license classifier present: {bad}")
+              if not any(h.startswith("License-Expression:") for h in head):
+                  raise SystemExit(f"{label}: License-Expression header is missing")
+              if any(h.startswith("License:") for h in head):
+                  raise SystemExit(f"{label}: deprecated License header present; PyPI rejects it")
+              print(f"{label}: metadata ok")
+          PY
+
+      - name: Smoke-test the wheel
+        # Installs the built wheel into a throwaway environment and asserts EVERY
+        # packaged module imports and all four console scripts are registered —
+        # the packaging mistakes (a missing `packages` entry, a broken entry
+        # point, a dependency that is imported but not declared) that a
+        # source-tree test run cannot catch. It never STARTS a server: both MCP
+        # entry points speak JSON-RPC on stdin and would hang the runner.
+        #
+        # `--no-project` is the whole point: this resolves the wheel's own
+        # Requires-Dist from scratch, exactly as a `pip install` would, WITHOUT
+        # uv.lock. Everything else in this repo (ci.yml, `uv sync --locked`, the
+        # pytest run above) tests the locked versions, so an unbounded dependency
+        # that has since shipped a breaking major is invisible to all of them and
+        # visible only here.
+        #
+        # Walking the whole package tree, not just the top-level names, is
+        # deliberate: the top-level `__init__` modules import almost nothing, so a
+        # shallow check passes even when every toolset is broken.
+        run: |
+          set -euo pipefail
+          wheel="$(ls dist/*.whl)"
+          uv run --no-project --python 3.12 --with "$wheel" python - <<'PY'
+          import importlib
+          import pkgutil
+          from importlib.metadata import entry_points, version
+
+          # Runs inside Blender against its bundled `bpy`; never importable, and
+          # never imported, by the bodymesh-server host process.
+          SKIP = "bodymesh_server.blender_scripts."
+
+          print("installed version:", version("dsp-geometry-engine"))
+          print("resolved mcp:", version("mcp"))
+
+          names = []
+          for top in ("dsp_server", "bodymesh_server", "cxx_bridge"):
+              names.append(top)
+              pkg = importlib.import_module(top)
+              names += [m.name for m in pkgutil.walk_packages(pkg.__path__, top + ".")]
+
+          failures = []
+          for name in names:
+              if name.startswith(SKIP):
+                  continue
+              try:
+                  importlib.import_module(name)
+              except Exception as exc:
+                  failures.append(f"{name}: {type(exc).__name__}: {exc}")
+          if failures:
+              raise SystemExit(
+                  "wheel does not import from its own declared dependencies:\n  "
+                  + "\n  ".join(failures)
+              )
+          print("imported ok:", len(names), "modules")
+
+          scripts = {e.name for e in entry_points(group="console_scripts")}
+          missing = {"dsp-server", "dsp-tool", "bodymesh-server", "bodymesh-tool"} - scripts
+          if missing:
+              raise SystemExit(f"wheel is missing console scripts: {sorted(missing)}")
+          print("smoke ok")
+          PY
+
+      # upload/download-artifact are versioned independently of each other; v7 and
+      # v8 are their respective current majors and are the matching pair (v8 of the
+      # downloader is what understands v7's direct, unzipped uploads).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: [verify, build]
+    if: needs.verify.outputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    # The environment name is part of what PyPI verifies (the `environment` OIDC
+    # claim), so it must match the TestPyPI publisher config exactly. It is also
+    # where the owner hangs approval gates and, later, any deployment protection.
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/dsp-geometry-engine
+    permissions:
+      contents: read
+      # REQUIRED for trusted publishing: without it the runner cannot mint an OIDC
+      # token, and `uv publish` fails as though no credentials were configured.
+      id-token: write
+    steps:
+      - uses: astral-sh/setup-uv@v8.3.2  # setup-uv publishes no major-alias tag (no refs/tags/v8)
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to TestPyPI
+        # --trusted-publishing always: fail loudly if no OIDC token is available
+        # rather than silently falling back to (nonexistent) username/password.
+        # --check-url: skip files already on the index, so re-rehearsing the same
+        # version is a no-op instead of a 400 "file already exists".
+        run: >
+          uv publish
+          --trusted-publishing always
+          --publish-url https://test.pypi.org/legacy/
+          --check-url https://test.pypi.org/simple/
+          dist/*
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [verify, build]
+    if: needs.verify.outputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dsp-geometry-engine
+    permissions:
+      contents: read
+      id-token: write  # REQUIRED for trusted publishing — see publish-testpypi
+    steps:
+      - uses: astral-sh/setup-uv@v8.3.2  # setup-uv publishes no major-alias tag (no refs/tags/v8)
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to PyPI
+        run: >
+          uv publish
+          --trusted-publishing always
+          --check-url https://pypi.org/simple/
+          dist/*
+
+  github-release:
+    name: Attach distributions to the GitHub Release
+    needs: publish-pypi
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the Release and upload the sdist + wheel as assets
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Create or update the release
+        # `gh` is preinstalled on GitHub-hosted runners, so this needs no third-party
+        # release action. --repo is required because this job has no checkout.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" --generate-notes
+          fi

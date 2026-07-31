@@ -177,7 +177,7 @@ references, renders comparison silhouettes, and exports both neutral DSP telemet
 also render the fixed eight-closeup/three-body-view `identity-v1` set without changing the candidate
 contract. It does not claim one-shot photo reconstruction — fitting a body to photographs is an
 iterative parametric approximation, and a single clothed image is underdetermined. See
-[`docs/BODY-MESH-MCP.md`](docs/BODY-MESH-MCP.md).
+[`docs/BODY-MESH-MCP.md`](https://github.com/hgner/hippocampus/blob/main/docs/BODY-MESH-MCP.md).
 
 ## Tool packs
 
@@ -240,7 +240,7 @@ uv run dsp-tool verify_motion_consistency --args-json '{\"frames\": \"data/video
 
 (The backslash-escaped quotes are a Windows PowerShell 5.1 requirement — it strips inner double quotes
 when handing an argument to a native executable, and the CLI then rejects the JSON. POSIX shells take
-`'{"frames": "..."}'` verbatim.) See [`docs/COMPARISON-GATE.md`](docs/COMPARISON-GATE.md) for what the
+`'{"frames": "..."}'` verbatim.) See [`docs/COMPARISON-GATE.md`](https://github.com/hgner/hippocampus/blob/main/docs/COMPARISON-GATE.md) for what the
 gate tools measure and how their verdicts combine.
 
 `bodymesh-tool` exposes all 6 body-mesh tools the same way. The pre-flight needs no arguments and
@@ -295,7 +295,9 @@ workers via `subprocess.Popen(argv, shell=False)` and only request/result JSON a
 cross. No worker imports a project module, and MPFB is reached through `importlib.import_module` at
 runtime. Neither Blender nor MPFB is bundled here or in any wheel built from this repository.
 
-See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`LICENSES/README.md`](LICENSES/README.md) for the
+See [`LICENSE`](https://github.com/hgner/hippocampus/blob/main/LICENSE),
+[`NOTICE`](https://github.com/hgner/hippocampus/blob/main/NOTICE), and
+[`LICENSES/README.md`](https://github.com/hgner/hippocampus/blob/main/LICENSES/README.md) for the
 full map, the third-party dependency notes, and the copyright statement.
 
 Copyright 2026 hgner <hgner09@gmail.com>.

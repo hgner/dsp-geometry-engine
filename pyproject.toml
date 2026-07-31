@@ -1,7 +1,7 @@
 [project]
 name = "dsp-geometry-engine"
 version = "0.1.0"
-description = "Independent MCP servers for engine DSP analysis and local Blender/MPFB body-mesh generation"
+description = "Two MCP servers: signal-processing and geometry analysis of 3D mesh dumps, renders and telemetry, plus local Blender/MPFB body-mesh generation"
 readme = "README.md"
 # PEP 639 SPDX expression: the tree is Apache-2.0 except src/bodymesh_server/blender_scripts/**,
 # which is GPL-3.0-or-later (Blender-side workers using MPFB's GPL API). See LICENSES/README.md.
@@ -13,8 +13,51 @@ authors = [
     { name = "hgner", email = "hgner09@gmail.com" }
 ]
 requires-python = ">=3.12"
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "dsp",
+    "fft",
+    "signal-processing",
+    "mesh",
+    "geometry",
+    "ply",
+    "blender",
+    "mpfb",
+]
+# PEP 639: this project declares a `license` SPDX EXPRESSION (-> Metadata `License-Expression`),
+# so NO `License ::` trove classifier may appear below. PEP 639 deprecates license classifiers and
+# says build tools MAY error when both are present. Nothing local catches the mistake today
+# (hatchling, packaging 26.2, and `twine check` all pass a build carrying both), so this comment is
+# the guard: never add a `License ::` line here — change `license` above instead.
+# OS: the wheel is pure Python, but only Linux and Windows are CI-tested, and `bodymesh-server`
+# is Windows-only, so "OS Independent" would be a false claim. macOS is untested and unlisted.
+# Python: only 3.12 is exercised in CI; add 3.13 here only when the CI matrix covers it.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "mcp[cli]>=1.2",
+    # Upper bound is load-bearing, not caution: both servers import
+    # `mcp.server.fastmcp`, which mcp 2.0.0 removed (FastMCP moved to
+    # `mcp.server.mcpserver`). uv.lock pins 1.x so CI and `uv sync` never see it,
+    # but a plain `pip install dsp-geometry-engine` ignores the lock and resolves
+    # the newest match — without `<2` that install crashes every console script.
+    # Raise the ceiling only together with the `mcp.server.fastmcp` imports.
+    "mcp[cli]>=1.2,<2",
     "pydantic>=2.7",
     "numpy>=1.26",
     "scipy>=1.13",
@@ -25,6 +68,16 @@ dependencies = [
     "joblib>=1.4",
     "pywavelets>=1.9.0",
 ]
+
+# The GitHub repo is currently named `hippocampus`; these are the real, current URLs. If the repo
+# is ever renamed (e.g. to `dsp-geometry-engine`), every URL here must be updated in the same commit.
+[project.urls]
+Homepage = "https://github.com/hgner/hippocampus"
+Repository = "https://github.com/hgner/hippocampus"
+Issues = "https://github.com/hgner/hippocampus/issues"
+Documentation = "https://github.com/hgner/hippocampus/tree/main/docs"
+# No CHANGELOG.md exists; the releases page is the changelog and never 404s.
+Changelog = "https://github.com/hgner/hippocampus/releases"
 
 [project.scripts]
 dsp-server = "dsp_server.server:main"

@@ -127,3 +127,139 @@ differential (pure-numpy LBS vs engine dump) is the reusable method, not a one-o
   `tests/stub_character_bake.py`; the body-mesh bridge tests still exercise request validation,
   subprocess/result handling, artifact confinement, exact 55-bone validation, skin/tangent gates,
   and DSP-PLY parsing without installing Blender or the C++ tools.
+
+## Release (PyPI)
+
+`.github/workflows/release.yml` publishes the `dsp-geometry-engine` distribution to PyPI using
+**Trusted Publishing (OIDC)**. There is no PyPI API token anywhere in this repository, and none
+should ever be added: the workflow mints a short-lived token from PyPI at publish time.
+
+Pipeline, in order — `verify` (tag equals `[project].version`) -> `test` (the same lint/format/pytest
+matrix as `ci.yml`, on ubuntu **and** windows) -> `build` (`uv build`, a metadata check, plus a smoke
+test that installs the wheel into a throwaway environment and asserts every packaged module imports
+and all four console scripts are registered) -> `publish` -> GitHub Release. Nothing is built until
+the tag has been checked, because **a version published under the wrong number is burnt permanently**:
+yanking a PyPI release hides it, it does not free the number for re-upload.
+
+The smoke test is the only check in this repository that sees what a `pip install` actually gets.
+Everything else — `ci.yml`, `uv sync --locked`, the pytest run — resolves through `uv.lock`, but a
+consumer installing from PyPI has no lockfile and gets the newest version each `Requires-Dist`
+specifier allows. So the smoke step deliberately uses `uv run --no-project --with <wheel>`, which
+re-resolves the wheel's own dependencies from scratch, and then imports **every** module in the
+package tree (skipping `bodymesh_server.blender_scripts.*`, which import Blender's `bpy` and only
+ever run inside Blender). Importing just the top-level packages is not enough: they pull in almost
+nothing, so a shallow check stays green while every toolset is broken. This is what caught
+`mcp[cli]` needing a `<2` ceiling — `uv.lock` pinned 1.x, but an unbounded specifier resolved
+`mcp` 2.0.0, which removed `mcp.server.fastmcp` and broke all four console scripts. **Any dependency
+whose import path this project reaches into needs an upper bound, and the smoke test is what proves
+it.**
+
+The metadata check is `twine check --strict` (a README that stops rendering becomes a release failure
+rather than a broken project page) plus an assertion that the built `METADATA`/`PKG-INFO` carries
+`License-Expression` and **zero** `Classifier: License ::` lines. That second half is hand-rolled
+because nothing else enforces it: `pyproject.toml` declares a PEP 639 SPDX expression, and hatchling,
+`packaging`, and `twine check --strict` all accept a distribution carrying an SPDX expression *and* a
+license classifier. Warehouse only rejects the legacy `License:` field against `License-Expression`,
+so that combination would upload silently and freeze into the published metadata, which is immutable
+per version.
+
+### Owner-only setup on pypi.org (must happen BEFORE the first release)
+
+The project does not exist on PyPI yet, so a normal trusted publisher cannot be attached to it. The
+owner must first register a **pending publisher**, which creates the project on first successful
+publish. Go to <https://pypi.org/manage/account/publishing/> (account sidebar -> "Publishing"), pick
+the **GitHub** tab, and fill in exactly:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| PyPI Project Name | `dsp-geometry-engine` | required; the project that gets created on first use |
+| Owner | `hgner` | required; GitHub user or org that owns the repo |
+| Repository name | `hippocampus` | required; repo name only, no owner prefix, no URL |
+| Workflow name | `release.yml` | required; **filename only** — must end in `.yml`/`.yaml`, no `.github/workflows/` prefix, no directories |
+| Environment name | `pypi` | optional but strongly recommended; must match the workflow's `environment:` |
+
+Then click **Add**. Repeat the whole thing on <https://test.pypi.org/manage/account/publishing/> with
+Environment name `testpypi` — TestPyPI is a separate service with its own accounts and its own
+publishers; a publisher registered on PyPI does nothing for TestPyPI.
+
+Things that silently make the first release fail:
+
+- **A pending publisher reserves nothing.** If anyone registers the name `dsp-geometry-engine` on
+  PyPI before the first publish lands, the pending publisher is invalidated.
+- **Repository name is not checked when you save it.** PyPI validates the *owner* live against
+  GitHub's API (and stores the canonical login plus the numeric owner ID), but it cannot check the
+  repository, because the repository may be private. A typo is accepted at configuration time and
+  only surfaces at publish time as an unhelpful "not a valid token" / invalid-publisher error.
+- **Renaming this repository invalidates the publisher.** PyPI matches the OIDC `repository` claim
+  (`owner/repo`, case-insensitively) against what was configured. If `hippocampus` is renamed to
+  `dsp-geometry-engine`, the publisher must be edited (or deleted and re-added) with the new
+  repository name — otherwise the next release fails authentication with no hint that a rename is the
+  cause. Do the rename *before* configuring the pending publisher, or fix the publisher immediately
+  after. Renaming the *GitHub account* is safe: that is pinned by numeric owner ID.
+- **The publishing job must stay in `release.yml`.** PyPI also matches the `job_workflow_ref` claim,
+  `hgner/hippocampus/.github/workflows/release.yml@<ref>`. Moving the `uv publish` step into a
+  reusable workflow called via `workflow_call` changes that claim to the *called* workflow and breaks
+  the match. Reusing another workflow for the *test* jobs is fine; the upload job is not.
+- **Environment name has to agree on both sides.** It is compared case-insensitively, but "configured
+  on PyPI, absent from the job" and "different name" both fail.
+
+### Owner-only setup on github.com
+
+1. Settings -> Environments -> **New environment**, twice: `pypi` and `testpypi`. They can be empty;
+   they only need to exist under those exact names, because the environment name is part of what PyPI
+   verifies.
+2. On `pypi`, add **Required reviewers** (yourself) to get a manual approval gate — the run pauses
+   before the upload and waits. This is the recommended configuration and the reason the workflow uses
+   environments at all. Optionally also restrict its deployment branches/tags to `v*`.
+3. If an org policy restricts `GITHUB_TOKEN`, confirm workflows may still be granted `contents: write`
+   — the last job needs it to create the GitHub Release and attach the sdist and wheel.
+4. **Make the repository public before the first upload.** Trusted publishing works fine from a
+   private repo, but every entry in `[project.urls]` (Homepage, Repository, Issues, Documentation,
+   Changelog) points at `github.com/hgner/hippocampus`, and all five 404 for anonymous visitors while
+   the repo is private. Those URLs are frozen into the published metadata for that version — PyPI
+   metadata is immutable per release, so this cannot be corrected after upload without cutting a new
+   version. The same applies to the relative links in `README.md` (`LICENSE`, `NOTICE`,
+   `LICENSES/README.md`, `docs/BODY-MESH-MCP.md`, `docs/COMPARISON-GATE.md`): PyPI renders the README
+   as the long description but resolves relative links against `pypi.org`, so they 404 there
+   regardless of repo visibility. Rewrite them to absolute `https://github.com/...` URLs if the PyPI
+   page should be self-contained.
+
+### TestPyPI rehearsal
+
+Actions -> **release** -> "Run workflow" -> pick a branch -> target `testpypi`. This runs the whole
+pipeline (verify, tests, build, smoke test) and uploads to TestPyPI only. No tag is required, and a
+dispatch run can never reach real PyPI from a branch: the workflow refuses `target: pypi` unless it is
+running from a `v*` tag.
+
+Install the rehearsed artifact to confirm it is usable — dependencies must come from real PyPI,
+since TestPyPI does not mirror them:
+
+```powershell
+uv venv C:\Temp\relcheck
+uv pip install --python C:\Temp\relcheck\Scripts\python.exe `
+  --index-url https://test.pypi.org/simple/ `
+  --extra-index-url https://pypi.org/simple/ `
+  dsp-geometry-engine
+```
+
+Repeating a rehearsal at the same version uploads nothing: `uv publish --check-url` skips files the
+index already has (without it, TestPyPI answers a re-upload with a 400). To rehearse the same code
+again for real, bump to a throwaway version such as `0.1.0.dev1` on the branch.
+
+### Real release
+
+1. Land everything on `main` with CI green.
+2. Bump `version` in `pyproject.toml`, run `uv lock`, commit.
+3. Tag and push — the tag must be exactly `v` + the pyproject version:
+   ```powershell
+   git tag -a v0.1.0 -m "v0.1.0"
+   git push origin v0.1.0
+   ```
+4. Approve the `pypi` deployment when Actions asks (if required reviewers are configured).
+5. The workflow publishes to PyPI and then creates the GitHub Release for the tag, attaching the same
+   sdist and wheel that were uploaded.
+
+If the tag disagrees with `pyproject.toml`, the first job fails immediately with the expected tag
+name and **nothing is built or uploaded** — delete the tag, fix one of the two, re-tag. A failed
+upload can be retried with "Re-run failed jobs", or by dispatching the workflow with the tag selected
+as the ref and target `pypi`; re-runs are safe because `--check-url` skips files PyPI already has.

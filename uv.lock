@@ -315,7 +315,7 @@ dev = [
 requires-dist = [
     { name = "joblib", specifier = ">=1.4" },
     { name = "matplotlib", specifier = ">=3.9" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.2" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.2,<2" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=10.3" },
     { name = "pydantic", specifier = ">=2.7" },
