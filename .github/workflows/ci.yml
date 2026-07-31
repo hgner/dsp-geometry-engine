@@ -1,7 +1,12 @@
-# Python-only CI (plan M3): lint + format + tests on both OSes against the stub
-# engine (conftest points DSP_ENGINE_CLI at tests/stub_engine.py). C++ verification
-# is deliberately local-only (scripts/verify-engine.ps1). The docker job (plan M9)
-# builds the image to keep the Dockerfile honest — no push.
+# Python-only CI: lint + format + tests across three OSes and two Python versions
+# against the stub engine (conftest points DSP_ENGINE_CLI at tests/stub_engine.py).
+# C++ verification is deliberately local-only (scripts/verify-engine.ps1). The
+# docker job builds the image to keep the Dockerfile honest — no push.
+#
+# The matrix is what the PyPI `classifiers` in pyproject.toml are allowed to
+# claim. Widen the matrix first and let it go green; only then widen the
+# classifiers. Never the other way round — a classifier is a promise to users
+# filtering on it, and published metadata is immutable per version.
 name: ci
 
 on:
@@ -17,10 +22,12 @@ permissions:
 
 jobs:
   test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -30,7 +37,9 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --locked
+        # --python overrides .python-version (pinned to 3.12 for local work) so the
+        # same locked resolution is exercised on every interpreter in the matrix.
+        run: uv sync --locked --python ${{ matrix.python }}
 
       - name: Lint
         run: uv run ruff check .

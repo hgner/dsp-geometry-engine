@@ -95,12 +95,13 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, py${{ matrix.python }})
     needs: verify
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -110,7 +111,9 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --locked
+        # --python overrides .python-version so the locked resolution is exercised
+        # on every interpreter the classifiers claim. Kept in sync with ci.yml.
+        run: uv sync --locked --python ${{ matrix.python }}
 
       - name: Lint
         run: uv run ruff check .
