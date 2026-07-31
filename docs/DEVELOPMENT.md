@@ -174,7 +174,7 @@ the **GitHub** tab, and fill in exactly:
 | --- | --- | --- |
 | PyPI Project Name | `dsp-geometry-engine` | required; the project that gets created on first use |
 | Owner | `hgner` | required; GitHub user or org that owns the repo |
-| Repository name | `hippocampus` | required; repo name only, no owner prefix, no URL |
+| Repository name | `dsp-geometry-engine` | required; repo name only, no owner prefix, no URL |
 | Workflow name | `release.yml` | required; **filename only** — must end in `.yml`/`.yaml`, no `.github/workflows/` prefix, no directories |
 | Environment name | `pypi` | optional but strongly recommended; must match the workflow's `environment:` |
 
@@ -191,13 +191,14 @@ Things that silently make the first release fail:
   repository, because the repository may be private. A typo is accepted at configuration time and
   only surfaces at publish time as an unhelpful "not a valid token" / invalid-publisher error.
 - **Renaming this repository invalidates the publisher.** PyPI matches the OIDC `repository` claim
-  (`owner/repo`, case-insensitively) against what was configured. If `hippocampus` is renamed to
-  `dsp-geometry-engine`, the publisher must be edited (or deleted and re-added) with the new
-  repository name — otherwise the next release fails authentication with no hint that a rename is the
-  cause. Do the rename *before* configuring the pending publisher, or fix the publisher immediately
+  (`owner/repo`, case-insensitively) against what was configured. This repository was renamed from
+  `hippocampus` to `dsp-geometry-engine` on 2026-07-31, before any publisher existed, so the table
+  above is already correct. Any *future* rename means editing the publisher (or deleting and
+  re-adding it) with the new repository name — otherwise the next release fails authentication with
+  no hint that a rename is the cause. Do the rename *before* configuring the publisher, or fix it
   after. Renaming the *GitHub account* is safe: that is pinned by numeric owner ID.
 - **The publishing job must stay in `release.yml`.** PyPI also matches the `job_workflow_ref` claim,
-  `hgner/hippocampus/.github/workflows/release.yml@<ref>`. Moving the `uv publish` step into a
+  `hgner/dsp-geometry-engine/.github/workflows/release.yml@<ref>`. Moving the `uv publish` step into a
   reusable workflow called via `workflow_call` changes that claim to the *called* workflow and breaks
   the match. Reusing another workflow for the *test* jobs is fine; the upload job is not.
 - **Environment name has to agree on both sides.** It is compared case-insensitively, but "configured
@@ -215,7 +216,7 @@ Things that silently make the first release fail:
    — the last job needs it to create the GitHub Release and attach the sdist and wheel.
 4. **Make the repository public before the first upload.** Trusted publishing works fine from a
    private repo, but every entry in `[project.urls]` (Homepage, Repository, Issues, Documentation,
-   Changelog) points at `github.com/hgner/hippocampus`, and all five 404 for anonymous visitors while
+   Changelog) points at `github.com/hgner/dsp-geometry-engine`, and all five 404 for anonymous visitors while
    the repo is private. Those URLs are frozen into the published metadata for that version — PyPI
    metadata is immutable per release, so this cannot be corrected after upload without cutting a new
    version. The same applies to the relative links in `README.md` (`LICENSE`, `NOTICE`,

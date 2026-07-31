@@ -69,15 +69,15 @@ dependencies = [
     "pywavelets>=1.9.0",
 ]
 
-# The GitHub repo is currently named `hippocampus`; these are the real, current URLs. If the repo
-# is ever renamed (e.g. to `dsp-geometry-engine`), every URL here must be updated in the same commit.
+# These are the real, current URLs. A repo rename must update every one of them in the same commit —
+# and also the PyPI trusted publisher, which matches on `owner/repo`. See docs/DEVELOPMENT.md.
 [project.urls]
-Homepage = "https://github.com/hgner/hippocampus"
-Repository = "https://github.com/hgner/hippocampus"
-Issues = "https://github.com/hgner/hippocampus/issues"
-Documentation = "https://github.com/hgner/hippocampus/tree/main/docs"
+Homepage = "https://github.com/hgner/dsp-geometry-engine"
+Repository = "https://github.com/hgner/dsp-geometry-engine"
+Issues = "https://github.com/hgner/dsp-geometry-engine/issues"
+Documentation = "https://github.com/hgner/dsp-geometry-engine/tree/main/docs"
 # No CHANGELOG.md exists; the releases page is the changelog and never 404s.
-Changelog = "https://github.com/hgner/hippocampus/releases"
+Changelog = "https://github.com/hgner/dsp-geometry-engine/releases"
 
 [project.scripts]
 dsp-server = "dsp_server.server:main"
