@@ -180,6 +180,32 @@ def _engine_retarget_script() -> Path:
     return Path(__file__).with_name("blender_scripts") / "engine_retarget_worker.py"
 
 
+def _trace(message: str) -> None:
+    """Append-and-flush diagnostic trace.
+
+    The bridge redirects the child's stdout to a FILE, which is block-buffered,
+    so a timeout kill discards whatever the child had written. That made a
+    600 s hang look like "the child did nothing". This trace is written by the
+    PARENT and flushed every line, so it survives the kill and shows how far
+    the bridge actually got.
+
+    ON BY DEFAULT, into the data dir: the one thing missing when this hung was
+    any parent-side evidence at all. BODYMESH_TRACE overrides the path;
+    BODYMESH_TRACE=0 disables it.
+    """
+    setting = os.environ.get("BODYMESH_TRACE")
+    if setting in {"0", "off", "false"}:
+        return
+    try:
+        path = Path(setting) if setting else config.data_dir() / "bridge_trace.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{time.time():.3f} pid={os.getpid()} {message}\n")
+            handle.flush()
+    except Exception:
+        pass
+
+
 def _child_env() -> dict[str, str]:
     """Pass only OS/Blender profile variables; never leak MCP/cloud credentials."""
 
@@ -377,11 +403,13 @@ def _run_to_files(
         popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         popen_options["start_new_session"] = True
+    _trace(f"_run_to_files ENTER argv0={argv[0]!r} cwd={candidate_dir}")
     with stdout_path.open("w", encoding="utf-8", errors="replace") as stdout_stream:
         with stderr_path.open("w", encoding="utf-8", errors="replace") as stderr_stream:
             proc = subprocess.Popen(
                 argv,
                 shell=False,
+                stdin=subprocess.DEVNULL,
                 stdout=stdout_stream,
                 stderr=stderr_stream,
                 text=True,
@@ -389,8 +417,10 @@ def _run_to_files(
                 env=_child_env(),
                 **popen_options,
             )
+            _trace(f"spawned pid={proc.pid} timeout={timeout_s}")
             try:
                 return_code = proc.wait(timeout=timeout_s)
+                _trace(f"pid={proc.pid} exited rc={return_code}")
             except subprocess.TimeoutExpired as exc:
                 tree_terminated = _terminate_process_tree(proc)
                 raise BlenderProcessTimeout(timeout_s, tree_terminated=tree_terminated) from exc
