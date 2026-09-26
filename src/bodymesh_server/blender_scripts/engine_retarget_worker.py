@@ -139,6 +139,26 @@ def _weight_mapping() -> dict[str, dict[str, float]]:
     return mapping
 
 
+def _joint_mapping() -> dict[str, str]:
+    """Engine bone -> the MPFB game_engine bone whose head is the same joint.
+
+    It is the inverse of every whole (weight 1.0) entry of ``_weight_mapping``,
+    so each engine bone pivots exactly where the MPFB skin weights it received
+    were authored to bend. The split spine_02 has no engine joint of its own.
+    """
+    joints: dict[str, str] = {}
+    for source_name, targets in _weight_mapping().items():
+        if len(targets) == 1:
+            (engine_name,) = targets
+            joints[engine_name] = source_name
+    return joints
+
+
+def _source_joint_world(source_rig) -> dict[str, Vector]:
+    matrix = source_rig.matrix_world
+    return {bone.name: matrix @ bone.head_local for bone in source_rig.data.bones}
+
+
 def _side_pairs() -> list[tuple[str, str]]:
     pairs = [(f"{base}L", f"{base}R") for base in SIDE_PAIR_BASES]
     for finger in FINGERS:
@@ -219,7 +239,7 @@ def _descendants(children: dict[str, list[str]], name: str) -> list[str]:
 
 
 def _fit_engine_world(
-    bones: list[dict], body, sex: str
+    bones: list[dict], body, sex: str, source_joints: dict[str, Vector]
 ) -> tuple[dict[str, Vector], dict[str, object], float]:
     coords = _body_coordinates(body)
     z_values = [coordinate.z for coordinate in coords]
@@ -228,29 +248,29 @@ def _fit_engine_world(
     if height <= 0.4:
         raise ValueError(f"MPFB body has invalid height {height}")
 
-    hip_band = [coordinate for coordinate in coords if 0.50 <= (coordinate.z - z_min) / height <= 0.56]
-    if not hip_band:
-        raise ValueError("MPFB body has no hip-band vertices")
-    hip_x = sum(coordinate.x for coordinate in hip_band) / len(hip_band)
-    hip_y = sum(coordinate.y for coordinate in hip_band) / len(hip_band)
-    recenter = Vector((hip_x, hip_y, z_min))
+    # Stand the pelvis joint over the origin. A hip-band vertex mean was pulled
+    # about 25 cm forward by the vertex-dense hands of MPFB's forward-bent
+    # default arms, and every engine joint followed it off the mesh.
+    if "pelvis" not in source_joints:
+        raise ValueError("MPFB game_engine rig has no pelvis joint")
+    pelvis = source_joints["pelvis"]
+    recenter = Vector((pelvis.x, pelvis.y, z_min))
     # MPFB faces -Y. The engine faces +Y after the engine->Blender conversion
     # (-Z in glTF, its declared forward), so turn the MESH 180 degrees around
     # Blender Z and apply it, and keep the engine skeleton as authored. Turning
     # the skeleton instead exported a coherent character that faced backwards:
     # an importer that trusts the -Z convention turned it away from whatever it
     # was meant to face.
-    body.matrix_world = (
-        Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation(-recenter) @ body.matrix_world
-    )
+    turn = Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation(-recenter)
+    body.matrix_world = turn @ body.matrix_world
     _activate(body)
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    coords = _body_coordinates(body)
+    joints = {name: turn @ head for name, head in source_joints.items()}
 
     scale = height / ENGINE_HEIGHT_M[sex]
-    world: dict[str, Vector] = {}
+    engine: dict[str, Vector] = {}
     for bone in bones:
-        world[bone["name"]] = _to_blender(bone["pos"]) * scale
+        engine[bone["name"]] = _to_blender(bone["pos"]) * scale
 
     children: dict[str, list[str]] = {}
     for bone in bones:
@@ -258,28 +278,49 @@ def _fit_engine_world(
         if parent >= 0:
             children.setdefault(bones[parent]["name"], []).append(bone["name"])
 
-    arm_fit: dict[str, object] = {}
+    # Every mapped engine joint sits on the MPFB joint its skin weights were
+    # authored around. The scaled engine proportions put the fingers, hips and
+    # knees centimetres away from the mesh's own joints, so a finger curl or a
+    # seated hip flexion swung skin about the wrong pivot (flat finger
+    # "blades", a buttock sweep behind the seat).
+    world: dict[str, Vector] = {}
+    for engine_name, source_name in _joint_mapping().items():
+        if engine_name not in engine:
+            continue
+        if source_name not in joints:
+            raise ValueError(f"MPFB game_engine rig has no {source_name} joint for {engine_name}")
+        world[engine_name] = joints[source_name]
+    # The unweighted face bones keep their engine offsets from the head joint.
+    for name in _descendants(children, "head"):
+        if name not in world:
+            world[name] = world["head"] + (engine[name] - engine["head"])
+    missing = [bone["name"] for bone in bones if bone["name"] not in world]
+    if missing:
+        raise ValueError(f"engine bones have no MPFB joint: {', '.join(missing)}")
+
+    # MPFB's default arms hang forward with the elbow bent about 45 degrees.
+    # Swing the upper arm onto the engine's arms-down direction, then unbend
+    # the forearm onto the engine's forearm direction, so the rest pose is the
+    # engine's straight arm and not a bent one the clips would bend further.
+    arm_fit: dict[str, list[tuple[str, object]]] = {}
     for side in ("L", "R"):
-        shoulder = world[f"armUpper{side}"]
-        sign = 1.0 if shoulder.x > 0.0 else -1.0
-        arm_points = [
-            coordinate
-            for coordinate in coords
-            if (coordinate.x - shoulder.x) * sign > 0.04 and coordinate.z / height > 0.35
-        ]
-        if len(arm_points) < 50:
-            raise ValueError(f"MPFB arm fit {side} found only {len(arm_points)} vertices")
-        arm_points.sort(key=lambda coordinate: (coordinate - shoulder).length, reverse=True)
-        count = max(1, len(arm_points) // 10)
-        tip = sum(arm_points[:count], Vector()) / count
-        mesh_direction = (tip - shoulder).normalized()
-        engine_direction = (world[f"hand{side}"] - shoulder).normalized()
-        fit = engine_direction.rotation_difference(mesh_direction)
-        moved = [f"armLower{side}", f"hand{side}"] + _descendants(children, f"hand{side}")
-        for name in moved:
-            world[name] = shoulder + fit @ (world[name] - shoulder)
-        arm_fit[side] = fit
-        sys.stderr.write(f"ARM-FIT {side}: {math.degrees(fit.angle):.2f} degrees\n")
+        upper, lower, hand = f"armUpper{side}", f"armLower{side}", f"hand{side}"
+        upper_fit = (engine[lower] - engine[upper]).rotation_difference(world[lower] - world[upper])
+        swung_forearm = upper_fit.inverted() @ (world[hand] - world[lower])
+        lower_fit = (engine[hand] - engine[lower]).rotation_difference(swung_forearm)
+        arm_fit[side] = [(upper, upper_fit), (lower, lower_fit)]
+        sys.stderr.write(
+            f"ARM-FIT {side}: upper {math.degrees(upper_fit.angle):.2f} degrees, "
+            f"forearm {math.degrees(lower_fit.angle):.2f} degrees\n"
+        )
+    # How far each MPFB joint is from the height-scaled engine proportion it replaces.
+    trunk_and_legs = ["pelvis", "spine", "chest", "neck", "head"] + [
+        f"{base}{side}"
+        for base in ("clavicle", "armUpper", "legUpper", "legLower", "foot", "toe")
+        for side in "LR"
+    ]
+    for name in trunk_and_legs:
+        sys.stderr.write(f"JOINT-FIT {name}: {(world[name] - engine[name]).length * 1000.0:.1f} mm\n")
     if set(arm_fit) != {"L", "R"}:
         raise ValueError("both MPFB arms must fit before rest normalization")
     return world, arm_fit, height
@@ -348,17 +389,18 @@ def _build_engine_armature(bones: list[dict], world: dict[str, Vector]):
     return armature
 
 
-def _apply_arms_down_rest(body, armature, arm_fit: dict[str, object]) -> None:
+def _apply_arms_down_rest(body, armature, arm_fit: dict[str, list[tuple[str, object]]]) -> None:
     _activate(armature)
     bpy.ops.object.mode_set(mode="POSE")
-    for side, fit in arm_fit.items():
-        pose_bone = armature.pose.bones[f"armUpper{side}"]
-        bpy.context.view_layer.update()
-        matrix = pose_bone.matrix.copy()
-        head = matrix.to_translation()
-        pivot = Matrix.Translation(head) @ fit.inverted().to_matrix().to_4x4() @ Matrix.Translation(-head)
-        pose_bone.matrix = pivot @ matrix
-        bpy.context.view_layer.update()
+    for fits in arm_fit.values():
+        for bone_name, fit in fits:
+            pose_bone = armature.pose.bones[bone_name]
+            bpy.context.view_layer.update()
+            matrix = pose_bone.matrix.copy()
+            head = matrix.to_translation()
+            pivot = Matrix.Translation(head) @ fit.inverted().to_matrix().to_4x4() @ Matrix.Translation(-head)
+            pose_bone.matrix = pivot @ matrix
+            bpy.context.view_layer.update()
     bpy.ops.object.mode_set(mode="OBJECT")
 
     source_modifier = next((modifier for modifier in body.modifiers if modifier.type == "ARMATURE"), None)
@@ -420,6 +462,7 @@ def _run(request: dict) -> dict:
         raise ValueError(f"MPFB helper removal produced {len(body.data.vertices)} vertices; expected 13380")
 
     remapped, max_influences = _remap_weights(body, engine_names)
+    source_joints = _source_joint_world(source_rig)
     body_world = body.matrix_world.copy()
     body.parent = None
     body.matrix_world = body_world
@@ -428,7 +471,7 @@ def _run(request: dict) -> dict:
             body.modifiers.remove(modifier)
     bpy.data.objects.remove(source_rig, do_unlink=True)
 
-    world, arm_fit, source_height = _fit_engine_world(bones, body, sex)
+    world, arm_fit, source_height = _fit_engine_world(bones, body, sex, source_joints)
     side_locality_pairs = _validate_side_locality(_body_coordinates(body), remapped, world)
     armature = _build_engine_armature(bones, world)
     body.parent = armature
