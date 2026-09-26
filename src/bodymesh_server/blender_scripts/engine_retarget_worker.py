@@ -124,9 +124,10 @@ def _weight_mapping() -> dict[str, dict[str, float]]:
         "foot": "foot",
         "ball": "toe",
     }
-    # The target skeleton is rotated 180 degrees around Blender Z below. MPFB
-    # game_engine `_l` groups are on +X, while the rotated engine `L` bones are
-    # on -X, so source sides must cross exactly once at this mapping boundary.
+    # The MPFB mesh is turned 180 degrees around Blender Z below, which moves
+    # its game_engine `_l` groups from +X to -X, where the engine `R` bones
+    # are, so source sides must cross exactly once at this mapping boundary.
+    # `_validate_side_locality` checks every pair against the bone positions.
     for source_base, engine_base in paired.items():
         for source_side, engine_side in SOURCE_TO_ENGINE_SIDE.items():
             mapping[f"{source_base}_{source_side}"] = {f"{engine_base}{engine_side}": 1.0}
@@ -233,18 +234,23 @@ def _fit_engine_world(
     hip_x = sum(coordinate.x for coordinate in hip_band) / len(hip_band)
     hip_y = sum(coordinate.y for coordinate in hip_band) / len(hip_band)
     recenter = Vector((hip_x, hip_y, z_min))
-    body.matrix_world = Matrix.Translation(-recenter) @ body.matrix_world
+    # MPFB faces -Y. The engine faces +Y after the engine->Blender conversion
+    # (-Z in glTF, its declared forward), so turn the MESH 180 degrees around
+    # Blender Z and apply it, and keep the engine skeleton as authored. Turning
+    # the skeleton instead exported a coherent character that faced backwards:
+    # an importer that trusts the -Z convention turned it away from whatever it
+    # was meant to face.
+    body.matrix_world = (
+        Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation(-recenter) @ body.matrix_world
+    )
     _activate(body)
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     coords = _body_coordinates(body)
 
     scale = height / ENGINE_HEIGHT_M[sex]
-    # MPFB faces -Y. The established engine->Blender conversion faces +Y,
-    # so rotate the target skeleton 180 degrees around Blender Z.
     world: dict[str, Vector] = {}
     for bone in bones:
-        point = _to_blender(bone["pos"]) * scale
-        world[bone["name"]] = Vector((-point.x, -point.y, point.z))
+        world[bone["name"]] = _to_blender(bone["pos"]) * scale
 
     children: dict[str, list[str]] = {}
     for bone in bones:
